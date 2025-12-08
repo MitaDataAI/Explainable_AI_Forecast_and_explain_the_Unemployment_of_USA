@@ -1,38 +1,0 @@
-
-W
-7
-customerClient final"customer_idJml_explainable
-õ–ÚÉÀÍùÍ¡—ÚÉØ…¸Ñ
-q
-Q
-fred_series%Identifiant de sÃ©rie temporelle FRED"	series_idJml_explainable
-øÚÉ¨‚Ô®øÚÉ¨‚Ô®
-E
-%
-__dummy"
-__dummy_idJml_explainable
-õ–ÚÉÀÍùÍøÚÉ¨‚Ô®1"$de81d654-650d-48e1-8c02-37d88aaa64dc*Ô¡ÚÉèš’2½
-Å
-customer_features_30dml_explainablecustomer"
-recency_days"
-nb_transactions_30d"
-avg_basket_30d"
-churn_score_raw2€š:£event_timestampZ data/customer_features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢customer_features_source’õ–ÚÉ›Ÿ¢"õ–ÚÉÀªğÆ@b
-customer_ids
-õ–ÚÉÀÍùÍÔ¡ÚÉÀÌŸ
-¼ş»ÈàÂÍ¼˜ÚÉàÂÍ
-ø†¼È áÉø ÚÉ áÉ
-Ô‡¼È˜¹ô]Ô¡ÚÉ˜¹ô]2ß
-„
-fred_featuresml_explainablefred_series"	
-value"	
-lag_1"
-rolling_mean_122€†°–:‘event_timestampZdata/fred_features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢fred_source’øÚÉ°áò"øÚÉ¨‚Ô®@b
-	series_idV
-øÚÉ¨‚Ô®Ô¡ÚÉèš’
-ø†¼È áÉø ÚÉ áÉ
-Ô‡¼È˜¹ô]Ô¡ÚÉ˜¹ô]b´event_timestampZ data/customer_features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢customer_features_sourceªml_explainable’õ–ÚÉ›Ÿ¢"õ–ÚÉÀªğÆb¢event_timestampZdata/fred_features.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢fred_sourceªml_explainable’øÚÉ°áò"øÚÉ¨‚Ô®z6
-ml_explainable$01c038b8-8544-4754-9686-ad1444eee512Š0
-
-ml_explainable
-õ–ÚÉèâ¶Íõ–ÚÉèâ¶Í
