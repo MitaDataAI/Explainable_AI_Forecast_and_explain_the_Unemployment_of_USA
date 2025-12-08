@@ -1,0 +1,23 @@
+
+q
+Q
+fred_series%Identifiant de s√©rie temporelle FRED"	series_idJml_explainable
+·œ€…∞ó–€·œ€…∞ó–€
+E
+%
+__dummy"
+__dummy_idJml_explainable
+·œ€…∞ó–€·œ€…∞ó–€1"$14a41b00-f1c7-47ee-8843-3aa72ebe5031*·œ€…†Å‰‹2¶
+Ö
+fred_featuresml_explainablefred_series"	
+value"	
+lag_1"
+rolling_mean_122ÄÜ∞ñ:íevent_timestampZdata/fred_features.parquetä1feast.infra.offline_stores.file_source.FileSource¢fred_sourceí·œ€…òöÒô"·œ€…∞ó–€@b
+	series_id
+·œ€…∞ó–€·œ€…∞ó–€RŸ
+÷
+,feast.infra.online_stores.sqlite.SqliteTable"•
+ÑD:\Portofolio Data science\Time Series\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\feature_repo\data\online_store.dbml_explainable_fred_featuresb£event_timestampZdata/fred_features.parquetä1feast.infra.offline_stores.file_source.FileSource¢fred_source™ml_explainableí·œ€…òöÒô"·œ€…∞ó–€ä0
+
+ml_explainable
+·œ€…‡…îæ·œ€…‡…îæ

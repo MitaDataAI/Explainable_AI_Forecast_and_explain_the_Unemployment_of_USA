@@ -5,5 +5,5 @@ fred_series = Entity(
     name="fred_series",
     join_keys=["series_id"],
     value_type=ValueType.STRING,
-    description="Identifiant de série temporelle FRED",
+    description="Identifiant de série FRED",
 )
