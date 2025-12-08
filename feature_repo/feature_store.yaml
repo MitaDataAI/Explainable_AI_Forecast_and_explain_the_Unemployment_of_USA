@@ -1,0 +1,13 @@
+project: ml_explainable
+provider: local
+
+registry: data/registry.db
+
+offline_store:
+  type: file
+
+online_store:
+  type: sqlite
+  path: data/online_store.db
+
+entity_key_serialization_version: 3
