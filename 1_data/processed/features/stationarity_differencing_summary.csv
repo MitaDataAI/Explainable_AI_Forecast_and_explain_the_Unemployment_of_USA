@@ -1,0 +1,11 @@
+,series,transformation,order
+0,BUSLOANS,diff,2
+1,CPIAUCSL,diff,2
+2,DPCERA3M086SBEA,logdiff,1
+3,INDPRO,logdiff,1
+4,M2SL,diff,2
+5,OILPRICEX,diff,2
+6,RPI,logdiff,1
+7,SP500,logdiff,1
+8,TB3MS,diff,1
+9,UNRATE,diff,1
