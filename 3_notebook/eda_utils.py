@@ -2,20 +2,46 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+from matplotlib.patches import Patch
+import matplotlib.dates as mdates
+
 
 from statsmodels.tsa.stattools import adfuller
 import statsmodels.api as sm
 
 
 # ======================================================
-# Constantes
+# Constantes ET Helpers
 # ======================================================
 ALPHA = 0.05
 
+def wide_to_long_timeseries(
+    df: pd.DataFrame,
+    *,
+    type_label: str = "Original",
+    date_col: str = "date",
+) -> pd.DataFrame:
+    """
+    DataFrame wide (index=date, colonnes=séries) -> format long.
+    Output: colonnes [date, series, value, type]
+    """
+    return (
+        df.copy()
+          .rename_axis(date_col)
+          .reset_index()
+          .assign(**{date_col: lambda x: pd.to_datetime(x[date_col])})
+          .melt(id_vars=date_col, var_name="series", value_name="value")
+          .dropna(subset=["value"])
+          .sort_values(["series", date_col])
+          .assign(type=type_label)
+          .reset_index(drop=True)
+    )
 
 # ======================================================
 # 1) Visualisation – séries originales
 # ======================================================
+
+
 def plot_original_series(
     df: pd.DataFrame,
     col_wrap: int = 4,
@@ -23,19 +49,10 @@ def plot_original_series(
     style: str = "dark_background",
 ):
     """
-    Convertit un DataFrame wide (index=date, colonnes=séries)
-    en format long et trace les séries temporelles originales.
+    Trace les séries temporelles originales
+    (conversion wide → long via wide_to_long_timeseries).
     """
-    df_long_orig = (
-        df.copy()
-          .rename_axis("date")
-          .reset_index()
-          .assign(date=lambda x: pd.to_datetime(x["date"]))
-          .melt(id_vars="date", var_name="series", value_name="value")
-          .dropna(subset=["value"])
-          .sort_values(["series", "date"])
-          .assign(type="Original")
-    )
+    df_long_orig = wide_to_long_timeseries(df, type_label="Original")
 
     plt.style.use(style)
 
@@ -662,6 +679,7 @@ def plot_acf_pacf_stationary(
 # ======================================================
 # 10) Volatilité glissante (rolling std) – sélection flexible
 # ======================================================
+
 def plot_rolling_volatility(
     df_stationary: pd.DataFrame,
     *,
@@ -669,23 +687,18 @@ def plot_rolling_volatility(
     include_cols: list[str] | tuple[str, ...] | None = None,
     exclude_cols: list[str] | tuple[str, ...] | None = None,
     shock_bands: list[tuple[str, str]] | None = None,
+    recession_col: str | None = "USREC",
+    recession_source: pd.DataFrame | None = None,   # ✅ NEW (si USREC doit venir d'ailleurs)
+    recession_alpha: float = 0.25,
+    recession_color: str = "grey",
+    add_recession_legend: bool = True,              # ✅ NEW
     to_month_start: bool = True,
     figsize: tuple[float, float] = (12, 5),
     linewidth: float = 1.0,
     style: str = "dark_background",
     title: str | None = None,
-    return_data: bool = False,   # ✅ NEW
+    return_data: bool = False,
 ):
-    """
-    Trace la volatilité glissante (rolling std) sur un sous-ensemble de colonnes.
-
-    Règles de sélection
-    -------------------
-    - Si include_cols est fourni : on part UNIQUEMENT de ces colonnes (si présentes).
-    - Ensuite, on retire exclude_cols (si fourni).
-    - Si include_cols est None : on part de toutes les colonnes puis on retire exclude_cols.
-    """
-
     cols_all = list(df_stationary.columns)
 
     # 1) Sélection des colonnes
@@ -697,6 +710,10 @@ def plot_rolling_volatility(
     if exclude_cols is not None:
         excl = set(exclude_cols)
         cols = [c for c in cols if c not in excl]
+
+    # On ne trace généralement pas USREC comme série de volatilité
+    if recession_col is not None and recession_col in cols:
+        cols = [c for c in cols if c != recession_col]
 
     if len(cols) == 0:
         raise ValueError("Aucune colonne à tracer après sélection.")
@@ -718,7 +735,37 @@ def plot_rolling_volatility(
         title=title or f"Volatilité glissante ({window} mois)",
     )
 
-    # 5) Bandes de chocs
+    # 5) Bandes de récession depuis USREC
+    rec_df = recession_source if recession_source is not None else df_stationary
+    recession_drawn = False
+
+    if recession_col is not None and recession_col in rec_df.columns:
+        usrec = rec_df[recession_col].copy()
+        usrec.index = pd.to_datetime(usrec.index)
+        if to_month_start:
+            usrec.index = usrec.index.to_period("M").to_timestamp()
+
+        # Aligner sur l’axe du plot (mêmes dates que roll_vol)
+        usrec = usrec.reindex(roll_vol.index).astype(float).fillna(0.0)
+
+        in_rec = (usrec.values == 1.0)
+        idx = usrec.index
+
+        start = None
+        for t, flag in zip(idx, in_rec):
+            if flag and start is None:
+                start = t
+            elif (not flag) and start is not None:
+                ax.axvspan(start, t, color=recession_color, alpha=recession_alpha, zorder=0)
+                recession_drawn = True
+                start = None
+
+        # si la série finit en récession
+        if start is not None:
+            ax.axvspan(start, idx[-1], color=recession_color, alpha=recession_alpha, zorder=0)
+            recession_drawn = True
+
+    # 6) Bandes manuelles (option)
     if shock_bands is not None:
         for start, end in shock_bands:
             ax.axvspan(
@@ -726,17 +773,132 @@ def plot_rolling_volatility(
                 pd.to_datetime(end),
                 color="grey",
                 alpha=0.3,
+                zorder=0,
             )
 
-    # 6) Mise en forme
+    # 7) Labels / grille
     ax.set_xlabel("Date")
     ax.set_ylabel(f"Rolling std ({window} mois)")
     ax.grid(False)
 
+    # 8) Légende avec récession
+    if add_recession_legend and recession_drawn:
+        handles, labels = ax.get_legend_handles_labels()
+        handles.append(Patch(facecolor=recession_color, alpha=recession_alpha, label="Récession (USREC)"))
+        ax.legend(handles=handles, labels=[*labels, "Récession (USREC)"], loc="upper left")
+
     plt.tight_layout()
     plt.show()
 
-    # 7) Retour optionnel
     if return_data:
         return roll_vol
     return None
+
+# ======================================================
+# 11) Original vs Stationnaire – côte à côte
+#     (réutilise wide_to_long_timeseries + helper de style de plot_original_series)
+# ======================================================
+
+def plot_original_vs_stationary_side_by_side(
+    df_original: pd.DataFrame,
+    df_stationary: pd.DataFrame,
+    *,
+    meta: dict | None = None,  # meta renvoyé par stationarize_by_rules
+    linewidth: float = 1.0,
+    style: str = "dark_background",
+    sharey: bool = False,
+    height: float = 1.6,
+    aspect: float = 3.0,
+    skip_cols: list[str] | tuple[str, ...] | None = ("USREC",),
+):
+    """
+    Trace chaque série sur une ligne : Original (gauche) vs Stationnaire (droite).
+    - Conversion wide -> long via wide_to_long_timeseries (pas de redondance).
+    - Style cohérent avec plot_original_series.
+    - Titres par ligne basés sur meta (optionnel).
+    """
+
+    # --- 0) Filtre colonnes si nécessaire
+    if skip_cols:
+        skip = set(skip_cols)
+        df_original = df_original.drop(columns=[c for c in df_original.columns if c in skip], errors="ignore")
+        df_stationary = df_stationary.drop(columns=[c for c in df_stationary.columns if c in skip], errors="ignore")
+
+    # --- 1) Long via helper commun
+    df_long_orig = wide_to_long_timeseries(df_original, type_label="Original")
+    df_long_stat = wide_to_long_timeseries(df_stationary, type_label="Stationnaire")
+
+    df_plot = (
+        pd.concat([df_long_orig, df_long_stat], ignore_index=True)
+          .sort_values(["series", "type", "date"])
+          .reset_index(drop=True)
+    )
+
+    # --- 2) Titres (méthode) via meta
+    method_map, d2_series = {}, set()
+    if meta is not None:
+        for serie, info in meta.items():
+            method = info.get("method")
+            lags = int(info.get("lags", 0))
+
+            if method == "logdiff":
+                method_map[serie] = f"Δlog({lags})"
+            elif method == "diff":
+                method_map[serie] = f"Δ({lags})"
+            elif method in ("none", "skip"):
+                method_map[serie] = "niveau"
+            else:
+                method_map[serie] = "méthode inconnue"
+
+            if lags == 2:
+                d2_series.add(serie)
+
+    def format_method_for_title(series: str) -> str:
+        base = method_map.get(series, "méthode inconnue")
+        if series in d2_series:
+            return base.replace("Δ", "Δ²", 1)
+        return base
+
+    # --- 3) Plot (style cohérent avec plot_original_series)
+    plt.style.use(style)
+    sns.set_context("talk")
+
+    g = sns.relplot(
+        data=df_plot,
+        x="date", y="value",
+        row="series",
+        col="type",
+        col_order=["Original", "Stationnaire"],
+        kind="line",
+        linewidth=linewidth,
+        facet_kws=dict(sharey=sharey),
+        height=height,
+        aspect=aspect,
+        legend=False,
+    )
+
+    g.set_titles("")
+    g.set_axis_labels("", "")
+
+    # --- 4) Titre commun par ligne
+    for i, serie in enumerate(g.row_names):
+        left_ax, right_ax = g.axes[i, 0], g.axes[i, 1]
+        method_txt = format_method_for_title(serie)
+        row_title = f"{serie} (original / {method_txt})"
+
+        left_pos, right_pos = left_ax.get_position(), right_ax.get_position()
+        x_center = (left_pos.x0 + right_pos.x1) / 2
+        y_top = left_pos.y1 + 0.02
+        g.fig.text(x_center, y_top, row_title, ha="center", va="bottom", fontsize=11)
+
+    # --- 5) Axes temps (même esprit que plot_original_series)
+    locator = mdates.AutoDateLocator()
+    formatter = mdates.ConciseDateFormatter(locator)
+    for ax in g.axes.flat:
+        ax.xaxis.set_major_locator(locator)
+        ax.xaxis.set_major_formatter(formatter)
+        ax.tick_params(axis="x", labelrotation=0)  # cohérent avec plot_original_series
+        ax.grid(False)
+
+    plt.show()
+    return df_plot
