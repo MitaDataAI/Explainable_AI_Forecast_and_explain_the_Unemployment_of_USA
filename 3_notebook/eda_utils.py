@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Patch
 import matplotlib.dates as mdates
 
-
 from statsmodels.tsa.stattools import adfuller
 import statsmodels.api as sm
 
@@ -803,28 +802,41 @@ def plot_original_vs_stationary_side_by_side(
     df_original: pd.DataFrame,
     df_stationary: pd.DataFrame,
     *,
-    meta: dict | None = None,  # meta renvoyé par stationarize_by_rules
+    exclude_cols: list[str] | tuple[str, ...] | None = ("USREC",),
+    show_recession_bands: bool = True,
+    recession_col: str = "USREC",
+    recession_alpha: float = 0.25,
+    recession_color: str = "grey",
     linewidth: float = 1.0,
     style: str = "dark_background",
     sharey: bool = False,
     height: float = 1.6,
     aspect: float = 3.0,
-    skip_cols: list[str] | tuple[str, ...] | None = ("USREC",),
 ):
     """
-    Trace chaque série sur une ligne : Original (gauche) vs Stationnaire (droite).
-    - Conversion wide -> long via wide_to_long_timeseries (pas de redondance).
-    - Style cohérent avec plot_original_series.
-    - Titres par ligne basés sur meta (optionnel).
+    Séries originales (gauche) vs stationnaires (droite),
+    avec bandes de récession (USREC).
     """
 
-    # --- 0) Filtre colonnes si nécessaire
-    if skip_cols:
-        skip = set(skip_cols)
-        df_original = df_original.drop(columns=[c for c in df_original.columns if c in skip], errors="ignore")
-        df_stationary = df_stationary.drop(columns=[c for c in df_stationary.columns if c in skip], errors="ignore")
+    # --- 1) Extraire USREC AVANT exclusion (pour bandes)
+    usrec = None
+    if show_recession_bands and recession_col in df_original.columns:
+        usrec = df_original[recession_col].astype(float).copy()
+        usrec.index = pd.to_datetime(usrec.index)
 
-    # --- 1) Long via helper commun
+    # --- 2) Exclure certaines séries du tracé (USREC non tracée comme ligne)
+    if exclude_cols:
+        excl = set(exclude_cols)
+        df_original = df_original.drop(
+            columns=[c for c in df_original.columns if c in excl],
+            errors="ignore"
+        )
+        df_stationary = df_stationary.drop(
+            columns=[c for c in df_stationary.columns if c in excl],
+            errors="ignore"
+        )
+
+    # --- 3) Passage en format long via helper commun
     df_long_orig = wide_to_long_timeseries(df_original, type_label="Original")
     df_long_stat = wide_to_long_timeseries(df_stationary, type_label="Stationnaire")
 
@@ -834,32 +846,7 @@ def plot_original_vs_stationary_side_by_side(
           .reset_index(drop=True)
     )
 
-    # --- 2) Titres (méthode) via meta
-    method_map, d2_series = {}, set()
-    if meta is not None:
-        for serie, info in meta.items():
-            method = info.get("method")
-            lags = int(info.get("lags", 0))
-
-            if method == "logdiff":
-                method_map[serie] = f"Δlog({lags})"
-            elif method == "diff":
-                method_map[serie] = f"Δ({lags})"
-            elif method in ("none", "skip"):
-                method_map[serie] = "niveau"
-            else:
-                method_map[serie] = "méthode inconnue"
-
-            if lags == 2:
-                d2_series.add(serie)
-
-    def format_method_for_title(series: str) -> str:
-        base = method_map.get(series, "méthode inconnue")
-        if series in d2_series:
-            return base.replace("Δ", "Δ²", 1)
-        return base
-
-    # --- 3) Plot (style cohérent avec plot_original_series)
+    # --- 4) Plot
     plt.style.use(style)
     sns.set_context("talk")
 
@@ -880,25 +867,69 @@ def plot_original_vs_stationary_side_by_side(
     g.set_titles("")
     g.set_axis_labels("", "")
 
-    # --- 4) Titre commun par ligne
+    # --- 5) Titre global + espacement
+    g.fig.suptitle(
+        "Séries originales vs stationnaires",
+        fontsize=16,
+        fontweight="bold",
+        y=0.985
+    )
+    g.fig.subplots_adjust(top=0.94)
+
+    # --- 6) Bandes de récession
+    recession_drawn = False
+    if usrec is not None:
+        for ax in g.axes.flat:
+            start = None
+            for t, flag in zip(usrec.index, usrec.values == 1.0):
+                if flag and start is None:
+                    start = t
+                elif not flag and start is not None:
+                    ax.axvspan(start, t,
+                               color=recession_color,
+                               alpha=recession_alpha,
+                               zorder=0)
+                    recession_drawn = True
+                    start = None
+            if start is not None:
+                ax.axvspan(start, usrec.index[-1],
+                           color=recession_color,
+                           alpha=recession_alpha,
+                           zorder=0)
+                recession_drawn = True
+
+    # --- 7) Sous-titre par ligne : nom de la série
     for i, serie in enumerate(g.row_names):
         left_ax, right_ax = g.axes[i, 0], g.axes[i, 1]
-        method_txt = format_method_for_title(serie)
-        row_title = f"{serie} (original / {method_txt})"
-
         left_pos, right_pos = left_ax.get_position(), right_ax.get_position()
-        x_center = (left_pos.x0 + right_pos.x1) / 2
-        y_top = left_pos.y1 + 0.02
-        g.fig.text(x_center, y_top, row_title, ha="center", va="bottom", fontsize=11)
 
-    # --- 5) Axes temps (même esprit que plot_original_series)
+        g.fig.text(
+            (left_pos.x0 + right_pos.x1) / 2,
+            left_pos.y1 + 0.01,
+            serie,
+            ha="center",
+            va="bottom",
+            fontsize=11,
+            fontweight="bold"
+        )
+
+    # --- 8) Axes temps (45°)
     locator = mdates.AutoDateLocator()
     formatter = mdates.ConciseDateFormatter(locator)
     for ax in g.axes.flat:
         ax.xaxis.set_major_locator(locator)
         ax.xaxis.set_major_formatter(formatter)
-        ax.tick_params(axis="x", labelrotation=0)  # cohérent avec plot_original_series
+        ax.tick_params(axis="x", labelrotation=45)
         ax.grid(False)
+
+    # --- 9) Légende récession
+    if recession_drawn:
+        g.fig.legend(
+            handles=[Patch(facecolor=recession_color,
+                           alpha=recession_alpha,
+                           label="Récession")],
+            loc="upper right"
+        )
 
     plt.show()
     return df_plot

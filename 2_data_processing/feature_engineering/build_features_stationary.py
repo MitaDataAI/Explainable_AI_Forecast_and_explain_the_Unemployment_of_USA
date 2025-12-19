@@ -27,15 +27,15 @@ def _validate_expected_columns(df, expected_cols):
         )
 
 
-def _apply_diff(series, order: int):
-    """Apply order-times differencing."""
+def _apply_diff(series, order: int, lags: int):
+    """Apply order-times differencing with step = lags (Δ_lags)."""
     out = series
     for _ in range(order):
-        out = out.diff(1)
+        out = out.diff(lags)
     return out
 
 
-def _apply_logdiff(series, order: int, col_name: str):
+def _apply_logdiff(series, order: int, lags: int, col_name: str):
     """Apply log then differencing; stop if non-positive values exist."""
     if (series <= 0).any():
         bad_idx = series.index[series <= 0][:5].tolist()
@@ -44,30 +44,36 @@ def _apply_logdiff(series, order: int, col_name: str):
             f"Impossible d'appliquer log()."
         )
     out = np.log(series)
-    out = _apply_diff(out, order=order)
+    out = _apply_diff(out, order=order, lags=lags)
     return out
 
 
-def _transformation_to_text(transform: str, order: int) -> str:
+def _transformation_to_text(method: str, order: int, lags: int) -> str:
     """
-    Convertit (transform, order) en texte lisible humain.
-    Respecte la config:
-      diff,1    -> changes
-      logdiff,1 -> log changes
-      diff,2    -> second order changes
-      none      -> none
+    Convertit (method, order, lags) en texte lisible humain.
+    Exemples :
+      diff,1,12    -> changes (Δ12)
+      logdiff,1,3  -> log changes (Δ3)
+      diff,2,1     -> second order changes (Δ1)
+      logdiff,2,3  -> second order log changes (Δ3)
+      none         -> none
     """
-    if transform == "diff" and order == 1:
-        return "changes"
-    if transform == "logdiff" and order == 1:
-        return "log changes"
-    if transform == "diff" and order == 2:
-        return "second order changes"
-    if transform == "logdiff" and order == 2:
-        return "second order log changes"
-    if transform == "none":
+    if method == "none":
         return "none"
-    return f"{transform} (order={order})"
+
+    base = None
+    if method == "diff" and order == 1:
+        base = "changes"
+    elif method == "logdiff" and order == 1:
+        base = "log changes"
+    elif method == "diff" and order == 2:
+        base = "second order changes"
+    elif method == "logdiff" and order == 2:
+        base = "second order log changes"
+    else:
+        base = f"{method} (order={order})"
+
+    return f"{base} (Δ{lags})"
 
 
 def build_stationarity_report(rules, labels, include_none: bool = False) -> pd.DataFrame:
@@ -77,9 +83,13 @@ def build_stationarity_report(rules, labels, include_none: bool = False) -> pd.D
     """
     rows = []
     for series_id, rule in rules.items():
-        transform = rule.get("transform")
+        if series_id == "_default":
+            continue
+
+        method = rule.get("method", rule.get("transform"))
         order = int(rule.get("order", 0))
-        text = _transformation_to_text(transform, order)
+        lags = int(rule.get("lags", 1))
+        text = _transformation_to_text(method, order, lags)
 
         if (not include_none) and text == "none":
             continue
@@ -103,33 +113,42 @@ def build_stationarity_report(rules, labels, include_none: bool = False) -> pd.D
 
 def apply_stationarity_transformations(df, rules=STATIONARITY_RULES):
     """
-    Application déterministe des transformations de stationnarité
-    (décidées dans les notebooks), pilotée par une config.
+    Application déterministe des transformations de stationnarité,
+    pilotée par config (supporte _default + method/lags/order).
 
     - Tri temporel avant diff()
-    - Stoppe explicitement si colonne manquante
+    - Stoppe explicitement si colonne manquante (pour SERIES_COLS)
     - Stoppe si log demandé mais valeurs <= 0
     """
-    _validate_expected_columns(df, expected_cols=list(rules.keys()))
+    # On valide uniquement les séries attendues (pas _default)
+    expected_cols = [c for c in SERIES_COLS if c in df.columns]
+    _validate_expected_columns(df, expected_cols=SERIES_COLS)
 
     df = df.sort_index().copy()
 
-    for col, rule in rules.items():
-        transform = rule["transform"]
+    default_rule = rules.get("_default")
+
+    # On applique aux colonnes du df (pas aux clés du dict)
+    for col in df.columns:
+        rule = rules.get(col, default_rule)
+        if rule is None:
+            raise KeyError(f"Aucune règle trouvée pour {col} et pas de règle _default.")
+
+        method = rule.get("method", rule.get("transform"))
         order = int(rule.get("order", 1))
+        lags = int(rule.get("lags", 1))
 
-        if transform == "diff":
-            df[col] = _apply_diff(df[col], order=order)
+        if method == "diff":
+            df[col] = _apply_diff(df[col], order=order, lags=lags)
 
-        elif transform == "logdiff":
-            df[col] = _apply_logdiff(df[col], order=order, col_name=col)
+        elif method == "logdiff":
+            df[col] = _apply_logdiff(df[col], order=order, lags=lags, col_name=col)
 
-        elif transform == "none":
-            # ex: binaire USREC
+        elif method == "none":
             df[col] = df[col]
 
         else:
-            raise ValueError(f"Transformation inconnue '{transform}' pour {col}")
+            raise ValueError(f"Transformation inconnue '{method}' pour {col}")
 
     before = len(df)
     df = df.dropna()

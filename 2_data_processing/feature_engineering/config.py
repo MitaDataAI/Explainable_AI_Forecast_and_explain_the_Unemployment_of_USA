@@ -2,7 +2,8 @@
 Config "feature_engineering" : paramètres figés issus des notebooks.
 
 Ici on fige les règles de stationnarisation :
-- transform: diff | logdiff | none
+- method: diff | logdiff | none
+- lags: horizon de différenciation (Δh)
 - order: 1 (I(1)) ou 2 (I(2))
 """
 
@@ -24,28 +25,23 @@ SERIES_COLS = [
 # Nom du fichier de sortie
 OUTPUT_FILENAME = "unemployment_features_stationary.csv"
 
-# Règles de stationnarisation (décidées dans notebook)
+# Règles de stationnarisation (figées)
 STATIONARITY_RULES = {
-    # Target (variation en points)
-    "UNRATE": {"transform": "diff", "order": 1},
+    # règles spécifiques inchangées
+    "UNRATE": {"method": "diff", "lags": 12, "order": 1},  # chômage Δ12
+    "TB3MS": {"method": "diff", "lags": 3, "order": 1},    # T-bill Δ3
 
-    # Taux
-    "TB3MS": {"transform": "diff", "order": 1},
-
-    # I(1) log-diff
-    "INDPRO": {"transform": "logdiff", "order": 1},
-    "RPI": {"transform": "logdiff", "order": 1},
-    "SP500": {"transform": "logdiff", "order": 1},
-    "DPCERA3M086SBEA": {"transform": "logdiff", "order": 1},
-
-    # I(2) diff²
-    "BUSLOANS": {"transform": "diff", "order": 2},
-    "CPIAUCSL": {"transform": "diff", "order": 2},
-    "M2SL": {"transform": "diff", "order": 2},
-    "OILPRICEX": {"transform": "diff", "order": 2},
+    # 2e différenciation du log pour ces séries
+    "OILPRICEX": {"method": "logdiff", "lags": 3, "order": 2},
+    "BUSLOANS": {"method": "logdiff", "lags": 3, "order": 2},
+    "M2SL": {"method": "logdiff", "lags": 3, "order": 2},
+    "CPIAUCSL": {"method": "logdiff", "lags": 3, "order": 2},
 
     # Binaire
-    "USREC": {"transform": "none", "order": 0},
+    "USREC": {"method": "none", "lags": 0, "order": 0},
+
+    # règle par défaut (toutes les autres séries)
+    "_default": {"method": "logdiff", "lags": 3, "order": 1},
 }
 
 # Libellés métier (pour affichage / reporting)

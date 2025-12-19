@@ -1,11 +1,7 @@
 ,Variable,Transformation,Name in the FRED-MD database
-0,Unemployment,changes,UNRATE
-1,3-month treasury bill,changes,TB3MS
-2,Real personal income,log changes,RPI
-3,Industrial production,log changes,INDPRO
-4,Consumption,log changes,DPCERA3M086SBEA
-5,S&P 500,log changes,SP500
-6,Business loans,second order changes,BUSLOANS
-7,CPI,second order changes,CPIAUCSL
-8,Oil price,second order changes,OILPRICEX
-9,M2 Money,second order changes,M2SL
+0,Unemployment,changes (Δ12),UNRATE
+1,3-month treasury bill,changes (Δ3),TB3MS
+2,Business loans,second order log changes (Δ3),BUSLOANS
+3,CPI,second order log changes (Δ3),CPIAUCSL
+4,Oil price,second order log changes (Δ3),OILPRICEX
+5,M2 Money,second order log changes (Δ3),M2SL
