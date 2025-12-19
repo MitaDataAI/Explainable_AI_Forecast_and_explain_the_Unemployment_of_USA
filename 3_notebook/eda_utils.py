@@ -933,3 +933,109 @@ def plot_original_vs_stationary_side_by_side(
 
     plt.show()
     return df_plot
+
+# 12) ======================================================
+#  Scatter/Reg + KDE – pour chaque variable explicative vs y
+#     (simple, efficace, style sombre, 2 colonnes : regplot / kde)
+# ======================================================
+
+def plot_reg_and_kde_grid(
+    df: pd.DataFrame,
+    *,
+    y: str = "UNRATE",
+    cols: list[str] | None = None,
+    exclude_cols: list[str] | tuple[str, ...] | None = ("USREC",),
+    height: float = 3.2,
+    width: float = 10.0,
+):
+    if y not in df.columns:
+        raise ValueError(f"'{y}' n'est pas dans df.")
+
+    if cols is None:
+        cols = [c for c in df.columns if c != y]
+    else:
+        cols = [c for c in cols if c != y]
+
+    if exclude_cols:
+        excl = set(exclude_cols)
+        cols = [c for c in cols if c not in excl]
+
+    cols = [c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
+    if not cols:
+        raise ValueError("Aucune colonne numérique à tracer (après filtrage).")
+
+    sns.set_style("dark")
+    fig, axes = plt.subplots(
+        nrows=len(cols), ncols=2,
+        figsize=(width, height * len(cols)),
+        facecolor="black"
+    )
+
+    # normaliser axes pour toujours itérer de la même manière
+    if len(cols) == 1:
+        axes = [axes]
+
+    for (ax1, ax2), col in zip(axes, cols):
+        d = df[[col, y]].dropna()
+
+        for ax in (ax1, ax2):
+            ax.set_facecolor("black")
+            ax.tick_params(colors="white")
+            ax.xaxis.label.set_color("white")
+            ax.yaxis.label.set_color("white")
+
+        sns.regplot(
+            data=d, x=col, y=y, ax=ax1,
+            scatter_kws={"s": 10, "color": "cyan"},
+            line_kws={"color": "red"}
+        )
+        ax1.set_title(f"{col} vs {y}", color="white")
+
+        sns.kdeplot(
+            data=d, x=col, y=y,
+            fill=True, cmap="Blues", ax=ax2
+        )
+        ax2.set_title(f"KDE {col} vs {y}", color="white")
+
+    plt.tight_layout()
+    plt.show()
+
+# 13) ======================================================
+#  Heatmap – Matrice de corrélation (style sombre)
+# ======================================================
+
+def plot_corr_heatmap(
+    df: pd.DataFrame,
+    *,
+    title: str = "Matrice de corrélation avec valeurs numériques",
+    figsize: tuple = (12, 8),
+    cmap: str = "coolwarm",
+    annot: bool = True,
+    fmt: str = ".2f",
+    linewidths: float = 0.7,
+    rotation: int = 45
+):
+    """
+    Affiche une heatmap de la matrice de corrélation en style sombre.
+    """
+
+    plt.style.use("dark_background")
+
+    plt.figure(figsize=figsize)
+
+    sns.heatmap(
+        df.corr(),
+        cmap=cmap,
+        annot=annot,
+        fmt=fmt,
+        linewidths=linewidths,
+        cbar=True,
+        annot_kws={"color": "white"} if annot else None
+    )
+
+    plt.title(title, fontsize=14, color="white")
+    plt.xticks(color="white", rotation=rotation, ha="right")
+    plt.yticks(color="white")
+
+    plt.tight_layout()
+    plt.show()
