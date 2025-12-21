@@ -1,2 +1,0 @@
-model,horizon,min_train_n,winsor_level,norm_var,use_bagging,B_boot,L_block,alpha_mode,best_alpha_last,trained_until,n_forecasts
-Ridge (with_UNRATE_lags_h12),12,36,0.01,True,True,30,12,cv,417.53189365604004,2024-08-01,741

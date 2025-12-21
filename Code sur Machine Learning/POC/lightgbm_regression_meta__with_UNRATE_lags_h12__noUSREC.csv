@@ -1,2 +1,0 @@
-model,horizon,min_train_n,winsor_level,norm_var,refit_every_months,retune_every_months,use_bagging,B_boot,L_block,trained_until,n_forecasts
-LightGBM+Bagging (with_UNRATE_lags_h12__noUSREC),12,36,0.01,True,12,36,True,30,12,2023-12-01,741

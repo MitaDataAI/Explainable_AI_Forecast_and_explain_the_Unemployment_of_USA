@@ -1,2 +1,0 @@
-model,horizon,min_train_n,winsor_level,refit_every_months,retune_every_months,p_max,rank_max,det_set,origin_min_years,origin_step_months,trained_until,n_forecasts
-VECM (MAE-tuned),12,60,0.01,12,36,12,,"ci,co",5,6,2023-12-01 00:00:00,729

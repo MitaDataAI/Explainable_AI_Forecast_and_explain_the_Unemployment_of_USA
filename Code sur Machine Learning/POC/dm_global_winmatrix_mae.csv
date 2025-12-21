@@ -1,5 +1,0 @@
-,AR(1),AR(p),LinearRegression,Ridge + Bagging
-AR(1),0,0,0,0
-AR(p),0,0,0,0
-LinearRegression,0,0,0,0
-Ridge + Bagging,0,0,0,0

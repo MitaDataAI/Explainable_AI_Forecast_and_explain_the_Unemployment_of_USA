@@ -1,2 +1,0 @@
-model,trend,horizon,cv_anchor,cv_update_months,trained_until,n_obs_y,n_forecasts,mean_p_used
-AR(p),c,12,1983-01-01,36,2024-08-01,788,741,3.0728744939271255

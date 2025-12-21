@@ -1,2 +1,0 @@
-trained_until,n_features,horizon,n_models_base,model
-2023-12-01,10,12,62,LightGBM+Bagging (with_UNRATE_lags_h12__noUSREC)

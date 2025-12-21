@@ -1,2 +1,0 @@
-model,horizon,min_train_n,winsor_level,norm_var,use_bagging,B_boot,L_block,trained_until,n_forecasts
-LinearRegression (with UNRATE_lags),12,36,0.01,True,True,30,12,2024-08-01,741

@@ -1,0 +1,8 @@
+{
+  "end": "2025-08-01",
+  "freq": "MS",
+  "n_cols": 11,
+  "n_rows": 788,
+  "path": "1_data\\processed\\features\\unemployment_features_stationary.csv",
+  "start": "1960-01-01"
+}
