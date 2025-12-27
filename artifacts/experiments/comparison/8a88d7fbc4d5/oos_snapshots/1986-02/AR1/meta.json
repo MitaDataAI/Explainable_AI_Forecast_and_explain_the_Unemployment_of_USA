@@ -1,0 +1,1 @@
+{"train_end":"1986-02-01","forecast_date":"1987-02-01","method":"AR1","h":12,"trend":"c","p_used":1,"use_bagging":true,"B_boot":30,"L_block":12,"seed":123,"y_true":-0.6,"y_pred":-0.1041988235}

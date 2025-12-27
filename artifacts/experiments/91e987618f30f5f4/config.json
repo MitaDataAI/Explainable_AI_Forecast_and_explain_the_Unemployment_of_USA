@@ -1,0 +1,14 @@
+{
+  "data_path": "1_data/processed/features/unemployment_features_stationary.csv",
+  "date_col": "date",
+  "end": null,
+  "horizon": 12,
+  "min_train_n": 36,
+  "model": "linear",
+  "preprocess": {
+    "normalize": true,
+    "winsor_level": 0.01
+  },
+  "start": null,
+  "target": "UNRATE"
+}

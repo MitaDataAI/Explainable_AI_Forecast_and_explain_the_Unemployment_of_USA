@@ -1,7 +1,7 @@
 ﻿import pandas as pd
 import pytest
 
-from explainable_ai_forecast.experiments.features import make_supervised
+from explainable_ai_forecast.experiments.data_preparation_features import make_supervised
 
 
 def test_make_supervised_shift_and_lag():

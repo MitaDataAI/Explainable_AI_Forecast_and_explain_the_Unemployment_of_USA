@@ -1,8 +1,8 @@
 from pathlib import Path
 import pandas as pd
 
-from explainable_ai_forecast.experiments.data import load_features
-from explainable_ai_forecast.experiments.features import make_supervised
+from explainable_ai_forecast.experiments.data_validation import load_features
+from explainable_ai_forecast.experiments.data_preparation_features import make_supervised
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]

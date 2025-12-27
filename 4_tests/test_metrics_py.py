@@ -1,6 +1,6 @@
 import pandas as pd
 
-from explainable_ai_forecast.experiments.metrics import regression_metrics
+from explainable_ai_forecast.experiments.model_evaluation_metrics import regression_metrics
 
 
 def test_regression_metrics_basic():

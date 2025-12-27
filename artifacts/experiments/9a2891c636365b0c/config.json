@@ -1,0 +1,38 @@
+{
+  "ar": {
+    "B_boot": 30,
+    "L_block": 12,
+    "cv_anchor": "1983-01-01",
+    "cv_update_every_months": 36,
+    "p_fixed": null,
+    "p_grid": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12
+    ],
+    "seed": 123,
+    "trend": "c",
+    "use_bagging": true
+  },
+  "data_path": "1_data/processed/features/unemployment_features_stationary.csv",
+  "date_col": "date",
+  "end": null,
+  "horizon": 12,
+  "min_train_n": 36,
+  "model": "ar",
+  "preprocess": {
+    "normalize": true,
+    "winsor_level": 0.01
+  },
+  "start": null,
+  "target": "UNRATE"
+}

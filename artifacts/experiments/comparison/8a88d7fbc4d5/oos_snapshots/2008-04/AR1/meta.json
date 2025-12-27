@@ -1,0 +1,1 @@
+{"train_end":"2008-04-01","forecast_date":"2009-04-01","method":"AR1","h":12,"trend":"c","p_used":1,"use_bagging":true,"B_boot":30,"L_block":12,"seed":123,"y_true":4.0,"y_pred":0.1699447552}

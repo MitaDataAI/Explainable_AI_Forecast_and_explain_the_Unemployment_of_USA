@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from explainable_ai_forecast.experiments.data import ensure_ms_index, load_features
+from explainable_ai_forecast.experiments.data_validation import ensure_ms_index, load_features
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATA_PATH = PROJECT_ROOT / "1_data" / "processed" / "features" / "unemployment_features_stationary.csv"

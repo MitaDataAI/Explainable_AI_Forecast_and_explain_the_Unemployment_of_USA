@@ -1,0 +1,1 @@
+{"train_end":"2000-03-01","forecast_date":"2001-03-01","method":"ARP","h":12,"trend":"c","p_used":4,"use_bagging":true,"B_boot":30,"L_block":12,"seed":123,"y_true":0.3,"y_pred":-0.1173917764}
