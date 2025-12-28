@@ -25,6 +25,20 @@ def parse_args() -> argparse.Namespace:
     # Output
     p.add_argument("--out-name", type=str, default="xai_perm_shap_all.csv")
 
+    # NEW: export panel SHAP/contributions par snapshot
+    p.add_argument(
+        "--out-shap-snapshots",
+        type=str,
+        default="",
+        help="Si non vide, exporte un CSV long: date, model, feature, shap_value, y_true (ex: shap_snapshots_long.csv)",
+    )
+    p.add_argument(
+        "--date-key",
+        type=str,
+        default="date",
+        help="Clé dans meta.json contenant la date du snapshot si disponible (sinon fallback sur le dossier YYYY-MM).",
+    )
+
     return p.parse_args()
 
 
@@ -62,7 +76,7 @@ def _collect_snapshots(snapshots_root: Path, method: str) -> list[Path]:
     return out
 
 
-def _read_snapshot(mdir: Path) -> tuple[pd.DataFrame, float, Any]:
+def _read_snapshot(mdir: Path) -> tuple[pd.DataFrame, float, Any, dict]:
     # Files: model.joblib, X_fore_used.parquet, meta.json
     model_path = mdir / "model.joblib"
     x_path = mdir / "X_fore_used.parquet"
@@ -80,7 +94,7 @@ def _read_snapshot(mdir: Path) -> tuple[pd.DataFrame, float, Any]:
 
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     y_true = float(meta["y_true"])
-    return X, y_true, model
+    return X, y_true, model, meta
 
 
 def _align_X(X_list: list[pd.DataFrame]) -> pd.DataFrame:
@@ -177,6 +191,56 @@ def _shapley_share_linear(
     return pd.Series(shares, index=X_df.columns)
 
 
+def _snapshot_date(meta: dict, mdir: Path, date_key: str) -> pd.Timestamp:
+    """
+    1) meta[date_key] si présent,
+    2) fallback: dossier YYYY-MM -> YYYY-MM-01
+       mdir = .../YYYY-MM/METHOD
+    """
+    if isinstance(meta, dict) and date_key in meta:
+        try:
+            return pd.to_datetime(meta[date_key])
+        except Exception:
+            pass
+
+    ym = mdir.parent.name  # "YYYY-MM"
+    try:
+        return pd.to_datetime(f"{ym}-01")
+    except Exception:
+        return pd.NaT
+
+
+def _append_shap_snapshot_rows(
+    out_csv: Path,
+    *,
+    date_t: pd.Timestamp,
+    model: str,
+    feature_names: list[str],
+    shap_values: np.ndarray,
+    y_true: float,
+) -> None:
+    """
+    Append CSV: date | model | feature | shap_value | y_true
+    shap_values doit être (p,)
+    """
+    sv = np.asarray(shap_values).reshape(-1)
+    if sv.shape[0] != len(feature_names):
+        raise ValueError("Mismatch shap_values / feature_names")
+
+    df_out = pd.DataFrame(
+        {
+            "date": [pd.to_datetime(date_t)] * len(feature_names),
+            "model": [model] * len(feature_names),
+            "feature": feature_names,
+            "shap_value": sv.astype(float),
+            "y_true": [float(y_true)] * len(feature_names),
+        }
+    )
+
+    header = not out_csv.exists()
+    df_out.to_csv(out_csv, mode="a", header=header, index=False)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -190,12 +254,16 @@ def main() -> None:
     X_list: list[pd.DataFrame] = []
     y_list: list[float] = []
     models: list[Any] = []
+    metas: list[dict] = []
+    snap_dirs_kept: list[Path] = []
 
     for mdir in snap_dirs:
-        X_i, y_true_i, model_i = _read_snapshot(mdir)
+        X_i, y_true_i, model_i, meta_i = _read_snapshot(mdir)
         X_list.append(X_i)
         y_list.append(y_true_i)
         models.append(model_i)
+        metas.append(meta_i)
+        snap_dirs_kept.append(mdir)
 
     # Optional sampling
     rng = np.random.default_rng(args.seed)
@@ -206,10 +274,53 @@ def main() -> None:
         X_list = [X_list[i] for i in idx]
         y_list = [y_list[i] for i in idx]
         models = [models[i] for i in idx]
+        metas = [metas[i] for i in idx]
+        snap_dirs_kept = [snap_dirs_kept[i] for i in idx]
 
+    # Align X (union des colonnes)
     X_all_df = _align_X(X_list)
     y_true = np.asarray(y_list, dtype=float)
     X_all = X_all_df.to_numpy()
+
+    # Calcul mu une fois (utilisé pour contributions linéaires par snapshot)
+    mu = np.nanmean(X_all, axis=0)
+    mu = np.where(np.isfinite(mu), mu, 0.0)
+
+    # NEW: Export shap snapshots (contributions linéaires) si demandé
+    if args.out_shap_snapshots:
+        out_snap_path = compare_dir / args.out_shap_snapshots
+        if out_snap_path.exists():
+            out_snap_path.unlink()  # évite d'append plusieurs runs par erreur
+
+        cols = list(X_all_df.columns)
+        for mdir, Xi, yi, mi, meta_i in zip(snap_dirs_kept, X_list, y_list, models, metas):
+            if not _is_linear_sklearn(mi):
+                continue
+
+            dt = _snapshot_date(meta_i, mdir, args.date_key)
+            if pd.isna(dt):
+                continue
+
+            # aligne la ligne snapshot sur cols
+            x_row = Xi.reindex(columns=cols).astype(float).fillna(0.0).to_numpy().reshape(-1)
+
+            coef = np.asarray(mi.coef_).reshape(-1)
+            if coef.shape[0] != len(cols):
+                continue
+
+            # contribution linéaire par feature
+            contrib = coef * (x_row - mu)
+
+            _append_shap_snapshot_rows(
+                out_csv=out_snap_path,
+                date_t=dt,
+                model=method,
+                feature_names=cols,
+                shap_values=contrib,
+                y_true=yi,
+            )
+
+        print(f"✅ SHAP snapshots exportés: {out_snap_path}")
 
     # 1) Permutation importances
     d_mae, d_mse = _permute_importance(models=models, X=X_all, y_true=y_true, seed=args.seed)
