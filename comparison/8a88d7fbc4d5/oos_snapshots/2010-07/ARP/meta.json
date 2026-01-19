@@ -1,0 +1,1 @@
+{"train_end":"2010-07-01","forecast_date":"2011-07-01","method":"ARP","h":12,"trend":"c","p_used":4,"use_bagging":true,"B_boot":30,"L_block":12,"seed":123,"y_true":-0.4,"y_pred":-0.0917260213}

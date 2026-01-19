@@ -40,6 +40,7 @@ def _save_oos_snapshot_ml(
     t_end: pd.Timestamp,
     model_obj: Any,
     fitted_preproc_obj: Any,
+    x_train_used: pd.DataFrame,  # ✅ NEW (baseline SHAP)
     x_fore_raw: pd.DataFrame,
     x_fore_used: pd.DataFrame,
     y_true: float,
@@ -50,6 +51,9 @@ def _save_oos_snapshot_ml(
 
     joblib.dump(model_obj, snap_dir / "model.joblib")
     joblib.dump(fitted_preproc_obj, snap_dir / "preproc.joblib")  # may be None
+
+    # ✅ NEW: baseline (masker) pour SHAP comme dans le repo auteur
+    x_train_used.to_parquet(snap_dir / "X_train_used.parquet")
 
     x_fore_raw.to_parquet(snap_dir / "X_fore_raw.parquet")
     x_fore_used.to_parquet(snap_dir / "X_fore_used.parquet")
@@ -203,6 +207,7 @@ def pseudo_oos_expanding(
                 t_end=pd.Timestamp(t_end),
                 model_obj=m,
                 fitted_preproc_obj=fitted,
+                x_train_used=X_tr_used,  # ✅ NEW
                 x_fore_raw=x_fore,
                 x_fore_used=x_fore_used,
                 y_true=float(y_true),

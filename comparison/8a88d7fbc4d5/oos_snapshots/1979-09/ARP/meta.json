@@ -1,0 +1,1 @@
+{"train_end":"1979-09-01","forecast_date":"1980-09-01","method":"ARP","h":12,"trend":"c","p_used":1,"use_bagging":true,"B_boot":30,"L_block":12,"seed":123,"y_true":1.6,"y_pred":0.0602535774}
