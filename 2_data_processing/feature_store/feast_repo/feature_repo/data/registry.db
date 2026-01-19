@@ -1,0 +1,21 @@
+
+O
+1
+__dummy"
+__dummy_idJunemployment_feature_store
+›¹¹Ë°Áí&›¹¹Ë°Áí&
+z
+\
+	series_id&Unique identifier for each time series"	series_idJunemployment_feature_store
+›¹¹Ëè›«'›¹¹Ëè›«'1"$61db6da8-c89a-4cfb-9d48-67d1d883b4bb*Å¹¹Ë€æİ 2´
+•
+stationary_valueunemployment_feature_store	series_id"	
+value2€¼àß:·dateZ­ªD:\Portofolio Data science\Time Series\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\1_data\processed\features\unemployment_features_stationary_long.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢ªD:\Portofolio Data science\Time Series\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\1_data\processed\features\unemployment_features_stationary_long.parquet’›¹¹Ë …¬"›¹¹ËğÀ‹$b
+	series_id
+›¹¹Ëè›«'›¹¹Ëè›«'R
+Š
+,feast.infra.online_stores.sqlite.SqliteTable"Ù
+©D:\Portofolio Data science\Time Series\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\2_data_processing\feature_store\feast_repo\feature_repo\data\online.db+unemployment_feature_store_stationary_valuebÔdateZ­ªD:\Portofolio Data science\Time Series\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\1_data\processed\features\unemployment_features_stationary_long.parquetŠ1feast.infra.offline_stores.file_source.FileSource¢ªD:\Portofolio Data science\Time Series\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\1_data\processed\features\unemployment_features_stationary_long.parquetªunemployment_feature_store’›¹¹Ë …¬"›¹¹ËğÀ‹$Š:
+
+unemployment_feature_store
+›¹¹Ë ¦›¹¹Ë ¦

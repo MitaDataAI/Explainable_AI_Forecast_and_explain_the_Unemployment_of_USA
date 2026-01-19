@@ -1,0 +1,5 @@
+feature_definitions.py
+__pycache__/
+*.pyc
+*.ipynb
+.ipynb_checkpoints/
