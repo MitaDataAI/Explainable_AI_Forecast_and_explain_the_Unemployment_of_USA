@@ -13,55 +13,66 @@ def main() -> None:
     print("\n=== Feast repo loaded ===")
     print("Project:", store.project)
 
-    # 2) Lister les FeatureViews et leurs features (pour ne pas deviner les noms)
+    # 2) Lister les FeatureViews
     fvs = store.list_feature_views()
-    if not fvs:
-        raise RuntimeError("Aucune FeatureView trouvée. Vérifie que `feast apply` a bien été fait.")
-
     print("\n=== Feature Views ===")
     for fv in fvs:
-        print(f"- {fv.name} | entities={fv.entities} | features={[f.name for f in fv.features]}")
+        print(f"- {fv.name} | features={[f.name for f in fv.features]}")
 
-    # On prend la première FV, ou la tienne explicitement
-    fv_name = "stationary_value"
-    fv = next((x for x in fvs if x.name == fv_name), None)
-    if fv is None:
-        raise RuntimeError(f"FeatureView '{fv_name}' introuvable. Found: {[x.name for x in fvs]}")
-
-    # 3) Construire la liste des features "fv_name:feature_name"
-    # Exemple: "stationary_value:value"
-    feature_refs = [f"{fv.name}:{feat.name}" for feat in fv.features]
-    if not feature_refs:
-        raise RuntimeError(f"La FeatureView '{fv.name}' n'a aucune feature déclarée.")
+    # 3) Tester explicitement les 2 FeatureViews
+    feature_refs = ["raw_value:value", "stationary_value:value"]
 
     print("\n=== Features to fetch ===")
     for fr in feature_refs:
         print("  ", fr)
 
-    # 4) Construire un entity_df minimal
-    # IMPORTANT: doit contenir join_keys + event_timestamp
-    # Ici: series_id + event_timestamp
+    # 4) Entity DF minimal (join keys + timestamp)
     entity_df = pd.DataFrame(
         {
-            "series_id": ["UNRATE", "CPIAUCSL"],  # adapte si besoin
-            "event_timestamp": [datetime(2020, 1, 1), datetime(2020, 1, 1)],
+            "series_id": ["UNRATE", "UNRATE", "UNRATE"],
+            "date": [
+                datetime(2019, 12, 1),
+                datetime(2020, 4, 1),
+                datetime(2020, 5, 1),
+            ],
         }
     )
 
     print("\n=== Entity DF ===")
     print(entity_df)
 
-    # 5) Appel historical features
-    print("\n=== Fetching historical features... ===")
+    # 5) Fetch historical features
+    # ⚠️ IMPORTANT : full_feature_names=True pour éviter la collision sur "value"
     df = store.get_historical_features(
         entity_df=entity_df,
         features=feature_refs,
+        full_feature_names=True,   # ✅ FIX ICI
     ).to_df()
 
     print("\n=== Result ===")
-    print(df.head(20))
+    print(df)
     print("\nColumns:", list(df.columns))
-    print("\n✅ SUCCESS: Feast returned historical features.")
+
+    # 6) Sanity check brut vs stationnaire
+    raw_col = [c for c in df.columns if c.startswith("raw_value__")]
+    sta_col = [c for c in df.columns if c.startswith("stationary_value__")]
+
+    if raw_col and sta_col:
+        raw_col = raw_col[0]
+        sta_col = sta_col[0]
+
+        print("\n=== Sanity check ===")
+        print("raw_col:", raw_col, "| stationary_col:", sta_col)
+        print(df[["date", raw_col, sta_col]])
+
+        print("\nraw describe:\n", df[raw_col].describe())
+        print("\nstationary describe:\n", df[sta_col].describe())
+        print(
+            "\nabs(raw - stationary) describe:\n",
+            (df[raw_col] - df[sta_col]).abs().describe(),
+        )
+
+    print("\n✅ SUCCESS: Feast returned raw & stationary features.")
 
 
 if __name__ == "__main__":

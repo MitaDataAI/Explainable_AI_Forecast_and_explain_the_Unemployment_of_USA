@@ -1,0 +1,2 @@
+[nbdev]
+mlforecast = mlforecast._modidx:d

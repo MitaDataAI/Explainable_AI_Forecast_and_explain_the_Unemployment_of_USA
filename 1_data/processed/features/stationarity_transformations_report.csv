@@ -1,7 +1,0 @@
-,Variable,Transformation,Name in the FRED-MD database
-0,Unemployment,changes (Δ12),UNRATE
-1,3-month treasury bill,changes (Δ3),TB3MS
-2,Business loans,second order log changes (Δ3),BUSLOANS
-3,CPI,second order log changes (Δ3),CPIAUCSL
-4,Oil price,second order log changes (Δ3),OILPRICEX
-5,M2 Money,second order log changes (Δ3),M2SL

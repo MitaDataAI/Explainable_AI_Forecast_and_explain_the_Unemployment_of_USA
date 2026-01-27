@@ -3,7 +3,7 @@ from feast import FeatureView, Field
 from feast.types import Float32
 
 from entities import series
-from data_sources import stationary_long_source
+from data_sources import stationary_long_source, raw_long_source
 
 stationary_value_fv = FeatureView(
     name="stationary_value",
@@ -11,5 +11,14 @@ stationary_value_fv = FeatureView(
     ttl=timedelta(days=365 * 100),
     schema=[Field(name="value", dtype=Float32)],
     source=stationary_long_source,
+    online=False,
+)
+
+raw_value_fv = FeatureView(
+    name="raw_value",
+    entities=[series],
+    ttl=timedelta(days=365 * 100),
+    schema=[Field(name="value", dtype=Float32)],
+    source=raw_long_source,
     online=False,
 )
