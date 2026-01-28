@@ -1,0 +1,18 @@
+{
+  "series_id": "UNRATE",
+  "start": "1959-01-01",
+  "end": "2025-09-01",
+  "freq": "MS",
+  "features": [
+    "stationary_value:value"
+  ],
+  "model": "AutoRegressive",
+  "ar_lags": 1,
+  "horizon": 12,
+  "step_size": 1,
+  "partitions": 35,
+  "pi_windows": 3,
+  "levels": [
+    95
+  ]
+}
