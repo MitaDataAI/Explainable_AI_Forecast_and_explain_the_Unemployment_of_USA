@@ -1,0 +1,9 @@
+{
+  "run_utc": "2026-01-28T15:16:02.709315",
+  "project_root": "D:\\Portofolio Data science\\Time Series\\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA",
+  "files": {
+    "oos": "D:\\Portofolio Data science\\Time Series\\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\\outputs\\forecasts\\unrate_ar_lag1_oos_forecasts.parquet",
+    "bkt": "D:\\Portofolio Data science\\Time Series\\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\\artifacts\\cv\\unrate_ar_lag1_bkt_raw.parquet",
+    "config": "D:\\Portofolio Data science\\Time Series\\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\\artifacts\\configs\\unrate_ar_lag1_config.json"
+  }
+}

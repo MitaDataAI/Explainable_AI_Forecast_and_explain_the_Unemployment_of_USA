@@ -1,0 +1,29 @@
+{
+  "run_utc": "2026-01-28T15:13:43.735391",
+  "project_root": "D:\\Portofolio Data science\\Time Series\\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA",
+  "saved_files": {
+    "oos_forecasts_parquet": "D:\\Portofolio Data science\\Time Series\\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\\outputs\\forecasts\\unrate_ar_lag1_oos_forecasts.parquet",
+    "bkt_raw_parquet": "D:\\Portofolio Data science\\Time Series\\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\\outputs\\forecasts\\unrate_ar_lag1_bkt_raw.parquet",
+    "config_json": "D:\\Portofolio Data science\\Time Series\\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\\artifacts\\configs\\unrate_ar_lag1_config.json"
+  },
+  "columns": {
+    "df_ar_forecasts": [
+      "series_id",
+      "date",
+      "cutoff",
+      "y_obs",
+      "y_hat_ar",
+      "y_hat_ar_lo_95",
+      "y_hat_ar_hi_95"
+    ],
+    "bkt_df": [
+      "unique_id",
+      "ds",
+      "cutoff",
+      "y",
+      "AutoRegressive",
+      "AutoRegressive-lo-95",
+      "AutoRegressive-hi-95"
+    ]
+  }
+}
