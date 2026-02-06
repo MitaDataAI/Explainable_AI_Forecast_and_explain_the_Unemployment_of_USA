@@ -1,0 +1,2 @@
+model,trend,horizon,lags,trained_until,n_obs_y,n_forecasts,use_bagging,use_conformal,pi_windows,step_size,n_intervals_available
+AR(1),c,12,1,2024-08-01,788,741,True,True,3,12,729
