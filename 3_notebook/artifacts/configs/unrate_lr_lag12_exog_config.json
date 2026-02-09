@@ -1,0 +1,32 @@
+{
+  "model": "LinearRegression",
+  "framework": "Nixtla-MLForecast",
+  "target": "UNRATE",
+  "stationary": true,
+  "lags": [
+    12
+  ],
+  "exogenous_variables": [
+    "BUSLOANS",
+    "CPIAUCSL",
+    "DPCERA3M086SBEA",
+    "INDPRO",
+    "M2SL",
+    "OILPRICEX",
+    "RPI",
+    "SP500",
+    "TB3MS",
+    "USREC"
+  ],
+  "horizon": 12,
+  "step_size": 1,
+  "partitions": 700,
+  "prediction_intervals": {
+    "method": "conformal_distribution",
+    "levels": [
+      95
+    ],
+    "n_windows": 3
+  },
+  "frequency": "MS"
+}

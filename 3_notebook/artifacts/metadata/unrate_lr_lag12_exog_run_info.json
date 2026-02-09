@@ -1,0 +1,10 @@
+{
+  "run_utc": "2026-02-06T20:32:53.126411",
+  "project_root": "D:\\Portofolio Data science\\Time Series\\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\\3_notebook",
+  "model_tag": "lr_lag12_exog",
+  "files": {
+    "oos_forecasts": "D:\\Portofolio Data science\\Time Series\\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\\3_notebook\\outputs\\forecasts\\unrate_lr_lag12_exog_oos_forecasts.parquet",
+    "cv_raw": "D:\\Portofolio Data science\\Time Series\\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\\3_notebook\\artifacts\\cv\\unrate_lr_lag12_exog_bkt_raw.parquet",
+    "config": "D:\\Portofolio Data science\\Time Series\\Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA\\3_notebook\\artifacts\\configs\\unrate_lr_lag12_exog_config.json"
+  }
+}

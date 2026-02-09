@@ -1,0 +1,23 @@
+{
+  "model": "Ridge (EXOG-ONLY, no y-lags)",
+  "alpha": 1.0,
+  "h": 12,
+  "step_size": 1,
+  "exp_start": "1990-01-01",
+  "exp_end": "2025-08-01",
+  "pi_windows": 3,
+  "levels": [
+    95
+  ],
+  "pi_method": "conformal_distribution",
+  "n_rows": 428,
+  "columns": [
+    "series_id",
+    "date",
+    "cutoff",
+    "y_obs",
+    "y_hat_ridge",
+    "y_hat_ridge_lo_95",
+    "y_hat_ridge_hi_95"
+  ]
+}
