@@ -1,0 +1,4 @@
+period            Ensemble 1990-1999 2000-2008 2008-2019 2020-fin
+model                                                            
+Autoregressive_1     0.369         -     0.341     0.523    0.455
+Linear Regression        -     0.976         -         -        -
