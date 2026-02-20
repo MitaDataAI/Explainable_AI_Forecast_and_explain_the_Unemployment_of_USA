@@ -3,6 +3,8 @@
 # Utilities: build "MAE (p)" pivot tables (DM test) by segments
 # + robust wide builder from OOS artifacts (AR1/ARp/LR) + RIDGE bkt
 # Key fix: normalize all dates to Month-Start (MS) to avoid NaN per segments.
+# FIX (2026-02-19): _ensure_datetime_index now supports BOTH 'date' and 'ds'
+# so MLflow-exported CSVs with a 'date' column align correctly.
 # ============================================================
 
 from __future__ import annotations
@@ -79,7 +81,16 @@ def make_mae_dm_pivot(
     add_dm: bool = True,
     dm_lags: int = 11,
 ) -> pd.DataFrame:
+    """
+    Build a pivot table with cells like:
+      "MAE" or "MAE (pvalue)"
+    where pvalue is Diebold-Mariano vs best model in the window.
 
+    Expected wide format:
+      - DatetimeIndex OR a 'date' column
+      - 'true' column
+      - one column per method (e.g., AR1, ARp, LR, RIDGE)
+    """
     df = wide.copy()
 
     # --- date handling
@@ -90,7 +101,7 @@ def make_mae_dm_pivot(
     if not isinstance(df.index, pd.DatetimeIndex):
         raise ValueError("wide doit avoir un DatetimeIndex ou une colonne 'date'.")
 
-    # ✅ IMPORTANT: tz-naive + normalisation Month-Start (NO "MS" here)
+    # ✅ IMPORTANT: tz-naive + normalisation Month-Start
     idx = pd.to_datetime(df.index, errors="coerce")
     if getattr(idx, "tz", None) is not None:
         idx = idx.tz_convert(None)
@@ -118,7 +129,7 @@ def make_mae_dm_pivot(
     if include_overall:
         windows.append((full_start, full_end, overall_label))
 
-    # ✅ Normalize segment bounds to Month-Start too (NO "MS")
+    # ✅ Normalize segment bounds to Month-Start too
     for start, end, label in segments:
         s = pd.to_datetime(start, errors="coerce")
         e = pd.to_datetime(end, errors="coerce") if end is not None else full_end
@@ -186,13 +197,24 @@ def _normalize_month_start(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
     """Force any datetime index onto month-start timestamps."""
     idx = pd.to_datetime(idx, errors="coerce")
     idx = idx[~pd.isna(idx)]
-    # Period(M) -> Timestamp at START of the month
     return idx.to_period("M").to_timestamp(how="start")
 
+
 def _ensure_datetime_index(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensure df has a DatetimeIndex, accepting:
+    - a 'date' column (MLflow-exported CSVs often use this)
+    - a 'ds' column (Nixtla / forecasting conventions)
+    - already DatetimeIndex
+    Then normalizes to Month-Start and removes duplicates.
+    """
     d = df.copy()
 
-    if "ds" in d.columns:
+    # ✅ FIX: accept BOTH 'date' and 'ds'
+    if "date" in d.columns:
+        d["date"] = pd.to_datetime(d["date"], errors="coerce")
+        d = d.dropna(subset=["date"]).set_index("date")
+    elif "ds" in d.columns:
         d["ds"] = pd.to_datetime(d["ds"], errors="coerce")
         d = d.dropna(subset=["ds"]).set_index("ds")
 
@@ -204,8 +226,7 @@ def _ensure_datetime_index(df: pd.DataFrame) -> pd.DataFrame:
     # normalize month start
     d.index = _normalize_month_start(d.index)
 
-    # ✅ IMPORTANT: remove duplicate timestamps after normalization
-    # keep last (souvent la valeur la plus récente / la plus cohérente)
+    # remove duplicate timestamps after normalization
     d = d[~d.index.duplicated(keep="last")]
 
     return d
@@ -240,7 +261,7 @@ def to_wide_from_oos(
 
     Notes
     -----
-    - All dates are normalized to Month-Start (MS) to align models.
+    - All dates are normalized to Month-Start to align models.
     - 'true' uses RIDGE's 'y' first (if provided), else AR1/ARp/LR y_true.
     """
     if y_true_candidates is None:
