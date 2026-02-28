@@ -225,3 +225,244 @@ def build_unrate_exog_dataset(
         )
 
     return df_model, ts_lr, exog_cols
+
+# ============================================================
+# utils_ar_p.py — AR(p) : CV rolling MAE + fit/predict + Conformal (pos)
+# (Bagging OFF dans ce fichier)
+# ============================================================
+
+import numpy as np
+import pandas as pd
+from dateutil.relativedelta import relativedelta
+from sklearn.metrics import mean_absolute_error
+from statsmodels.tsa.ar_model import AutoReg
+
+
+# ============================================================
+# ---------- Paramètres (defaults) ----------
+# ============================================================
+
+DEFAULT_CFG = dict(
+    h=12,
+    min_train_n=36,          # ≥ 3 ans
+    trend="c",               # "c" (constante) ou "n" (sans constante)
+    p_grid=range(1, 13),     # p ∈ {1,…,12}
+    cv_update_every_months=36,
+    cv_anchor=pd.Timestamp("1983-01-01"),
+    # Bagging OFF
+    use_bagging=False,
+    # Conformal
+    use_conformal=True,
+    alpha=0.05,
+    step_size=12,
+    pi_windows=3,            # si tu veux + stable, monte à 24
+)
+
+
+# ============================================================
+# ---------- Utils ----------
+# ============================================================
+
+def months_since(anchor: pd.Timestamp, t: pd.Timestamp) -> int:
+    return (t.year - anchor.year) * 12 + (t.month - anchor.month)
+
+
+def rolling_mae_for_p(
+    y_series: pd.Series,
+    p: int,
+    h: int,
+    min_train: int,
+    trend: str,
+) -> float:
+    rows = []
+    last_t_end = y_series.index.max() - relativedelta(months=h)
+
+    for t_end in y_series.index:
+        if t_end > last_t_end:
+            break
+
+        y_tr = y_series.loc[:t_end]
+        if len(y_tr) < max(min_train, p + 1):
+            continue
+
+        model = AutoReg(y_tr, lags=int(p), old_names=False, trend=trend).fit()
+        fc = model.predict(start=len(y_tr), end=len(y_tr) + h - 1)
+        yhat_h = float(fc.iloc[-1])
+
+        t_fore = t_end + relativedelta(months=h)
+        if t_fore in y_series.index:
+            rows.append((t_fore, yhat_h, float(y_series.loc[t_fore])))
+
+    if not rows:
+        return float("inf")
+
+    tmp = pd.DataFrame(rows, columns=["date", "y_hat", "y_true"]).set_index("date")
+    return float(mean_absolute_error(tmp["y_true"], tmp["y_hat"]))
+
+
+def select_p_by_cv(
+    y_tr: pd.Series,
+    p_grid,
+    h: int,
+    min_train: int,
+    trend: str,
+) -> int:
+    best_p, best_score = None, float("inf")
+    for p in p_grid:
+        score = rolling_mae_for_p(y_tr, int(p), h, min_train, trend)
+        if score < best_score:
+            best_score, best_p = score, int(p)
+    return int(best_p if best_p is not None else 1)
+
+
+def fit_predict_ar_p(y_tr: pd.Series, h: int, *, trend: str = "c", p: int = 1) -> float:
+    m = AutoReg(y_tr, lags=int(p), old_names=False, trend=trend).fit()
+    fc = m.predict(start=len(y_tr), end=len(y_tr) + h - 1)
+    return float(fc.iloc[-1])
+
+
+def conformal_q_from_past_windows_pos_ARp(
+    y: pd.Series,
+    i_end: int,
+    *,
+    h: int = 12,
+    step_size: int = 12,
+    pi_windows: int = 24,
+    trend: str = "c",
+    p: int = 12,
+    alpha: float = 0.05,
+    min_train_n: int = 36,
+) -> float:
+    errs = []
+
+    for k in range(1, int(pi_windows) + 1):
+        i_cal = i_end - k * int(step_size)
+        i_cal_fore = i_cal + int(h)
+
+        if i_cal < 0 or i_cal_fore >= len(y):
+            continue
+
+        y_tr_cal = y.iloc[: i_cal + 1]
+        if len(y_tr_cal) < max(int(min_train_n), int(p) + 2):
+            continue
+
+        try:
+            yhat_cal = fit_predict_ar_p(y_tr_cal, h=int(h), trend=trend, p=int(p))
+        except Exception:
+            continue
+
+        err = abs(float(y.iloc[i_cal_fore]) - float(yhat_cal))
+        if np.isfinite(err):
+            errs.append(err)
+
+    if len(errs) == 0:
+        return np.nan
+
+    n = len(errs)
+    q_level = np.ceil((n + 1) * (1 - float(alpha))) / n
+    q_level = min(max(q_level, 0.0), 1.0)
+    return float(np.quantile(errs, q_level))
+
+
+# ============================================================
+# ---------- Pseudo-OOS runner ----------
+# ============================================================
+
+def run_pseudo_oos_ar_p_no_bagging(
+    y: pd.Series,
+    *,
+    h: int = DEFAULT_CFG["h"],
+    min_train_n: int = DEFAULT_CFG["min_train_n"],
+    trend: str = DEFAULT_CFG["trend"],
+    p_grid=DEFAULT_CFG["p_grid"],
+    cv_update_every_months: int = DEFAULT_CFG["cv_update_every_months"],
+    cv_anchor: pd.Timestamp = DEFAULT_CFG["cv_anchor"],
+    use_conformal: bool = DEFAULT_CFG["use_conformal"],
+    alpha: float = DEFAULT_CFG["alpha"],
+    step_size: int = DEFAULT_CFG["step_size"],
+    pi_windows: int = DEFAULT_CFG["pi_windows"],
+    verbose_cv: bool = True,
+):
+    """
+    Retourne:
+      - df_oos: index=date_fore (t_end + h), colonnes:
+          y_hat, y_true, p_selected, lo_95, hi_95, y_hat_base
+      - meta: dict avec last_model, last_fit_end
+    """
+    rows = []
+    last_model = None
+    last_fit_end = None
+    current_p = None
+
+    last_t_end = y.index.max() - relativedelta(months=h)
+
+    for i_end, t_end in enumerate(y.index):
+        if t_end > last_t_end:
+            break
+
+        y_tr = y.loc[:t_end]
+        if len(y_tr) < int(min_train_n):
+            continue
+
+        # Re-CV à partir de cv_anchor tous les cv_update_every_months
+        if t_end >= cv_anchor:
+            m = months_since(cv_anchor, t_end)
+            need_cv = (m % int(cv_update_every_months) == 0)
+        else:
+            need_cv = False
+
+        if current_p is None and not need_cv:
+            current_p = 1
+
+        if need_cv:
+            current_p = select_p_by_cv(y_tr, p_grid, int(h), int(min_train_n), trend)
+            if verbose_cv:
+                print(f"[CV] {t_end.date()} → p* = {current_p}")
+
+        # Fit + forecast h (BASE)
+        arp = AutoReg(y_tr, lags=int(current_p), old_names=False, trend=trend).fit()
+        last_model = arp
+        last_fit_end = t_end
+
+        fc = arp.predict(start=len(y_tr), end=len(y_tr) + int(h) - 1)
+        yhat_h = float(fc.iloc[-1])
+        yhat_base = yhat_h
+
+        t_fore = t_end + relativedelta(months=h)
+        if t_fore not in y.index:
+            continue
+        y_true = float(y.loc[t_fore])
+
+        lo_95 = np.nan
+        hi_95 = np.nan
+
+        if use_conformal:
+            q = conformal_q_from_past_windows_pos_ARp(
+                y=y, i_end=i_end,
+                h=int(h), step_size=int(step_size), pi_windows=int(pi_windows),
+                trend=trend, p=int(current_p), alpha=float(alpha),
+                min_train_n=int(min_train_n),
+            )
+            if np.isfinite(q):
+                lo_95 = float(yhat_h - q)
+                hi_95 = float(yhat_h + q)
+
+        rows.append((t_fore, yhat_h, y_true, int(current_p), lo_95, hi_95, yhat_base))
+
+    if rows:
+        df_oos = (
+            pd.DataFrame(
+                rows,
+                columns=["date", "y_hat", "y_true", "p_selected", "lo_95", "hi_95", "y_hat_base"],
+            )
+            .set_index("date")
+            .sort_index()
+        )
+    else:
+        df_oos = pd.DataFrame(
+            columns=["y_hat", "y_true", "p_selected", "lo_95", "hi_95", "y_hat_base"]
+        )
+        df_oos.index = pd.to_datetime(pd.Index([]))
+
+    meta = {"last_model": last_model, "last_fit_end": last_fit_end}
+    return df_oos, meta
