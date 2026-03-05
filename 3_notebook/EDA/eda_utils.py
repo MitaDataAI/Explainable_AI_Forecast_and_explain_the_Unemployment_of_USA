@@ -939,63 +939,78 @@ def plot_original_vs_stationary_side_by_side(
 #     (simple, efficace, style sombre, 2 colonnes : regplot / kde)
 # ======================================================
 
-def plot_reg_and_kde_grid(
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+def plot_reg_and_kde_one(
     df: pd.DataFrame,
     *,
+    x: str,
     y: str = "UNRATE",
-    cols: list[str] | None = None,
-    exclude_cols: list[str] | tuple[str, ...] | None = ("USREC",),
+    title: str | None = None,          # ✅ titre global (au-dessus)
+    reg_title: str | None = None,      # ✅ titre du scatter+reg
+    kde_title: str | None = None,      # ✅ titre du KDE
+    show_kde: bool = True,             # ✅ si False => 1 seul graphe (regplot)
     height: float = 3.2,
     width: float = 10.0,
 ):
-    if y not in df.columns:
-        raise ValueError(f"'{y}' n'est pas dans df.")
+    # -------- checks --------
+    for c in (x, y):
+        if c not in df.columns:
+            raise ValueError(f"'{c}' n'est pas dans df.")
+        if not pd.api.types.is_numeric_dtype(df[c]):
+            raise ValueError(f"'{c}' doit être numérique.")
 
-    if cols is None:
-        cols = [c for c in df.columns if c != y]
-    else:
-        cols = [c for c in cols if c != y]
+    d = df[[x, y]].dropna()
+    if d.empty:
+        raise ValueError("Après dropna, il ne reste aucune observation.")
 
-    if exclude_cols:
-        excl = set(exclude_cols)
-        cols = [c for c in cols if c not in excl]
-
-    cols = [c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
-    if not cols:
-        raise ValueError("Aucune colonne numérique à tracer (après filtrage).")
-
+    # -------- style --------
     sns.set_style("dark")
-    fig, axes = plt.subplots(
-        nrows=len(cols), ncols=2,
-        figsize=(width, height * len(cols)),
-        facecolor="black"
-    )
+    face = "black"
 
-    # normaliser axes pour toujours itérer de la même manière
-    if len(cols) == 1:
-        axes = [axes]
-
-    for (ax1, ax2), col in zip(axes, cols):
-        d = df[[col, y]].dropna()
-
-        for ax in (ax1, ax2):
-            ax.set_facecolor("black")
-            ax.tick_params(colors="white")
-            ax.xaxis.label.set_color("white")
-            ax.yaxis.label.set_color("white")
-
-        sns.regplot(
-            data=d, x=col, y=y, ax=ax1,
-            scatter_kws={"s": 10, "color": "cyan"},
-            line_kws={"color": "red"}
+    if show_kde:
+        fig, (ax1, ax2) = plt.subplots(
+            nrows=1, ncols=2,
+            figsize=(width, height),
+            facecolor=face
         )
-        ax1.set_title(f"{col} vs {y}", color="white")
+        axes = (ax1, ax2)
+    else:
+        fig, ax1 = plt.subplots(
+            nrows=1, ncols=1,
+            figsize=(width/2, height),
+            facecolor=face
+        )
+        ax2 = None
+        axes = (ax1,)
 
+    for ax in axes:
+        ax.set_facecolor(face)
+        ax.tick_params(colors="white")
+        ax.xaxis.label.set_color("white")
+        ax.yaxis.label.set_color("white")
+
+    # -------- regplot --------
+    sns.regplot(
+        data=d, x=x, y=y, ax=ax1,
+        scatter_kws={"s": 10, "color": "cyan"},
+        line_kws={"color": "orange"}
+    )
+    ax1.set_title(reg_title or f"{x} vs {y}", color="white")
+
+    # -------- kde --------
+    if show_kde and ax2 is not None:
         sns.kdeplot(
-            data=d, x=col, y=y,
+            data=d, x=x, y=y,
             fill=True, cmap="Blues", ax=ax2
         )
-        ax2.set_title(f"KDE {col} vs {y}", color="white")
+        ax2.set_title(kde_title or f"KDE {x} vs {y}", color="white")
+
+    # -------- global title --------
+    if title:
+        fig.suptitle(title, color="white", y=1.02)
 
     plt.tight_layout()
     plt.show()

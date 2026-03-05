@@ -1,0 +1,13 @@
+model_label,block,ds,tune_mae,hp__alpha,hp__subsample,hp__reg_lambda,hp__reg_alpha,hp__num_leaves,hp__n_estimators,hp__min_split_gain,hp__min_child_samples,hp__max_depth,hp__colsample_bytree
+LR,1,1989-01-01,,,,,,,,,,,
+LR,2,1992-01-01,,,,,,,,,,,
+LR,3,1995-01-01,,,,,,,,,,,
+LR,4,1998-01-01,,,,,,,,,,,
+LR,5,2001-01-01,,,,,,,,,,,
+LR,6,2004-01-01,,,,,,,,,,,
+LR,7,2007-01-01,,,,,,,,,,,
+LR,8,2010-01-01,,,,,,,,,,,
+LR,9,2013-01-01,,,,,,,,,,,
+LR,10,2016-01-01,,,,,,,,,,,
+LR,11,2019-01-01,,,,,,,,,,,
+LR,12,2022-01-01,,,,,,,,,,,

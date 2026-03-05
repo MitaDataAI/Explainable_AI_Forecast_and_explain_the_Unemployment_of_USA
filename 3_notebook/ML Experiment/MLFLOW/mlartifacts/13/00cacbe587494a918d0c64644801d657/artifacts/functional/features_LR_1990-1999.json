@@ -1,0 +1,20 @@
+{
+  "features": [
+    "BUSLOANS_lag12",
+    "CPIAUCSL_lag12",
+    "DPCERA3M086SBEA_lag12",
+    "INDPRO_lag12",
+    "M2SL_lag12",
+    "OILPRICEX_lag12",
+    "RPI_lag12",
+    "SP500_lag12",
+    "TB3MS_lag12",
+    "USREC_lag12",
+    "UNRATE_lag12"
+  ],
+  "n_features": 11,
+  "ds_min": "1990-01-01",
+  "ds_max": "1999-12-01",
+  "partition": "1990-1999",
+  "model_label": "LR"
+}
