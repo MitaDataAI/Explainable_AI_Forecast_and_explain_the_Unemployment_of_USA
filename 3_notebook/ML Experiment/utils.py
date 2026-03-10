@@ -1,12 +1,18 @@
-from __future__ import annotations
-
 from pathlib import Path
-from typing import Tuple, List, Optional
 import pandas as pd
 from feast import FeatureStore
+import numpy as np
+
 from dataclasses import dataclass
-from mlforecast.utils import PredictionIntervals
+from typing import Any, Callable, Dict, Iterable, List, Optional
+
+from dateutil.relativedelta import relativedelta
+from sklearn.metrics import mean_absolute_error
 from sklearn.model_selection import ParameterGrid, ParameterSampler
+
+from mlforecast import MLForecast
+from mlforecast.utils import PredictionIntervals
+
 
 # =========================================================
 # 1) Utils: trouver la racine projet + repo Feast
@@ -51,14 +57,7 @@ def build_entity_df(
     ).to_frame(index=False)
     return entity_df
 
-# =========================================================
-# 3) Utils: load features from Feast and pivot to wide
-# =========================================================
 
-
-# -------------------------------------------------------------------
-# 1) LOAD : Feast -> WIDE (inchangé dans l'esprit, un peu durci)
-# -------------------------------------------------------------------
 def load_wide_from_feast(
     feature_ref: str,
     series_ids: list[str],
@@ -152,397 +151,66 @@ def load_wide_from_feast(
     return df_wide
 
 
-# -------------------------------------------------------------------
-# 2) FEATURE ENGINEERING : appliquer des lags sur exog (LAG variable)
-# -------------------------------------------------------------------
-def apply_exog_lags(
-    ts: pd.DataFrame,
-    exog_cols: list[str],
-    *,
+def make_ts_from_wide(
+    df_wide: pd.DataFrame,
+    target_col: str = "UNRATE",
     lags: int | list[int] = 12,
-    group_col: str = "unique_id",
-    time_col: str = "ds",
+    *,
+    unique_id_value: str | None = None,
+    date_name: str = "ds",
+    target_name: str = "y",
     drop_original_exog: bool = True,
     dropna: bool = True,
-    target_col: str = "y",
+    include_target_lags: bool = False,
 ) -> tuple[pd.DataFrame, list[str]]:
     """
-    Create lagged versions of exogenous columns.
-
-    Returns
-    -------
-    ts_out : pd.DataFrame
-        DataFrame with lagged exog columns added (and optionally original exog removed).
-    exog_cols_out : list[str]
-        New exogenous column names (lagged only).
+    Build a MLForecast-style dataframe from a wide dataframe:
+    [unique_id, ds, y, exog...] then apply exogenous lags.
     """
+    if target_col not in df_wide.columns:
+        raise KeyError(
+            f"target_col='{target_col}' not found in columns: {list(df_wide.columns)}"
+        )
+
     if isinstance(lags, int):
-        lags_list = [lags]
+        lags = [lags]
+
+    df = df_wide.sort_index().copy()
+
+    if unique_id_value is None:
+        unique_id_value = target_col
+
+    # -----------------------------
+    # Include or exclude target lags
+    # -----------------------------
+    if include_target_lags:
+        exog_cols = list(df.columns)
     else:
-        lags_list = list(lags)
+        exog_cols = [c for c in df.columns if c != target_col]
 
-    if not exog_cols:
-        return ts.copy(), []
+    ts_df = df.reset_index().rename(columns={"date": date_name})
+    ts_df[target_name] = ts_df[target_col]
+    ts_df["unique_id"] = unique_id_value
 
-    ts_out = ts.sort_values([group_col, time_col]).copy()
+    ts_df = ts_df[["unique_id", date_name, target_name] + exog_cols].copy()
+    ts_df = ts_df.sort_values(["unique_id", date_name]).copy()
 
-    new_exogs: list[str] = []
-    for L in lags_list:
-        if L <= 0:
-            raise ValueError(f"lags must be positive. Got {L}")
-        for c in exog_cols:
-            new_c = f"{c}_lag{L}"
-            ts_out[new_c] = ts_out.groupby(group_col, sort=False)[c].shift(L)
-            new_exogs.append(new_c)
+    exog_cols_lagged = []
+    for c in exog_cols:
+        for lag in lags:
+            new_c = f"{c}_lag{lag}"
+            ts_df[new_c] = ts_df.groupby("unique_id")[c].shift(lag)
+            exog_cols_lagged.append(new_c)
 
     if drop_original_exog:
-        ts_out = ts_out.drop(columns=exog_cols)
+        ts_df = ts_df.drop(columns=exog_cols, errors="ignore")
 
     if dropna:
-        needed = [target_col] + new_exogs
-        ts_out = ts_out.dropna(subset=needed).reset_index(drop=True)
-
-    return ts_out, new_exogs
-
-
-# =========================================================
-# 4) Utils: Build dataset (Target UNRATE + Exogenous variables)
-# =========================================================
-def build_unrate_exog_dataset(
-    df_stationary: pd.DataFrame,
-    target_id: str = "UNRATE",
-    value_col: str = "value",
-    series_col: str = "series_id",
-    date_col: str = "date",
-    unique_id: str = "UNRATE",
-    dropna: bool = True,
-    align_to_month_start: bool = True,
-) -> Tuple[pd.DataFrame, pd.DataFrame, List[str]]:
-    """
-    Target variable: stationary UNRATE
-    Exogenous variables: other macro series at the same timestamp
-
-    Input df_stationary must be LONG format with columns:
-      - series_id, date, value
-
-    Returns:
-      - df_model: wide dataset [date, y, <exog...>]
-      - ts_lr: MLForecast long format [unique_id, ds, y, <exog...>]
-      - exog_cols: list of exogenous column names
-    """
-    required = {series_col, date_col, value_col}
-    missing = required - set(df_stationary.columns)
-    if missing:
-        raise ValueError(f"df_stationary is missing columns: {sorted(missing)}")
-
-    df = df_stationary[[series_col, date_col, value_col]].copy()
-
-    # Ensure datetime
-    df[date_col] = pd.to_datetime(df[date_col])
-
-    # Optional: enforce month-start timestamps (MS)
-    if align_to_month_start:
-        df[date_col] = (
-            df[date_col]
-            .dt.to_period("M")
-            .dt.to_timestamp(how="start")
-            .dt.normalize()
-        )
-
-    # -------------------------
-    # Target y
-    # -------------------------
-    df_y = (
-        df[df[series_col] == target_id]
-        .sort_values(date_col)
-        .rename(columns={value_col: "y"})
-        .reset_index(drop=True)
-    )
-
-    # -------------------------
-    # Exogenous X (all other series)
-    # -------------------------
-    df_x_long = df[df[series_col] != target_id].copy()
-
-    # Keep only dates present in y
-    df_x_long = df_x_long[df_x_long[date_col].isin(df_y[date_col])]
-
-    df_x = (
-        df_x_long
-        .pivot_table(index=date_col, columns=series_col, values=value_col, aggfunc="last")
-        .reset_index()
-    )
-
-    # Merge y + X
-    df_model = (
-        df_y[[date_col, "y"]]
-        .merge(df_x, on=date_col, how="left")
-    )
-
-    if dropna:
-        df_model = df_model.dropna()
-
-    # -------------------------
-    # MLForecast format
-    # -------------------------
-    ts_lr = df_model.rename(columns={date_col: "ds"}).copy()
-    ts_lr["unique_id"] = unique_id
-
-    exog_cols = [c for c in ts_lr.columns if c not in ["unique_id", "ds", "y"]]
-    ts_lr = ts_lr[["unique_id", "ds", "y"] + exog_cols].copy()
-
-    # Ensure ds is month-start normalized
-    if align_to_month_start:
-        ts_lr["ds"] = (
-            pd.to_datetime(ts_lr["ds"])
-            .dt.to_period("M")
-            .dt.to_timestamp(how="start")
-            .dt.normalize()
-        )
-
-    return df_model, ts_lr, exog_cols
-
-# ============================================================
-# utils_ar_p.py — AR(p) : CV rolling MAE + fit/predict + Conformal (pos)
-# (Bagging OFF dans ce fichier)
-# ============================================================
-
-import numpy as np
-import pandas as pd
-from dateutil.relativedelta import relativedelta
-from sklearn.metrics import mean_absolute_error
-from statsmodels.tsa.ar_model import AutoReg
-
-
-# ============================================================
-# ---------- Paramètres (defaults) ----------
-# ============================================================
-
-DEFAULT_CFG = dict(
-    h=12,
-    min_train_n=36,          # ≥ 3 ans
-    trend="c",               # "c" (constante) ou "n" (sans constante)
-    p_grid=range(1, 13),     # p ∈ {1,…,12}
-    cv_update_every_months=36,
-    cv_anchor=pd.Timestamp("1983-01-01"),
-    # Bagging OFF
-    use_bagging=False,
-    # Conformal
-    use_conformal=True,
-    alpha=0.05,
-    step_size=12,
-    pi_windows=3,            # si tu veux + stable, monte à 24
-)
-
-
-# ============================================================
-# ---------- Utils ----------
-# ============================================================
-
-def months_since(anchor: pd.Timestamp, t: pd.Timestamp) -> int:
-    return (t.year - anchor.year) * 12 + (t.month - anchor.month)
-
-
-def rolling_mae_for_p(
-    y_series: pd.Series,
-    p: int,
-    h: int,
-    min_train: int,
-    trend: str,
-) -> float:
-    rows = []
-    last_t_end = y_series.index.max() - relativedelta(months=h)
-
-    for t_end in y_series.index:
-        if t_end > last_t_end:
-            break
-
-        y_tr = y_series.loc[:t_end]
-        if len(y_tr) < max(min_train, p + 1):
-            continue
-
-        model = AutoReg(y_tr, lags=int(p), old_names=False, trend=trend).fit()
-        fc = model.predict(start=len(y_tr), end=len(y_tr) + h - 1)
-        yhat_h = float(fc.iloc[-1])
-
-        t_fore = t_end + relativedelta(months=h)
-        if t_fore in y_series.index:
-            rows.append((t_fore, yhat_h, float(y_series.loc[t_fore])))
-
-    if not rows:
-        return float("inf")
-
-    tmp = pd.DataFrame(rows, columns=["date", "y_hat", "y_true"]).set_index("date")
-    return float(mean_absolute_error(tmp["y_true"], tmp["y_hat"]))
-
-
-def select_p_by_cv(
-    y_tr: pd.Series,
-    p_grid,
-    h: int,
-    min_train: int,
-    trend: str,
-) -> int:
-    best_p, best_score = None, float("inf")
-    for p in p_grid:
-        score = rolling_mae_for_p(y_tr, int(p), h, min_train, trend)
-        if score < best_score:
-            best_score, best_p = score, int(p)
-    return int(best_p if best_p is not None else 1)
-
-
-def fit_predict_ar_p(y_tr: pd.Series, h: int, *, trend: str = "c", p: int = 1) -> float:
-    m = AutoReg(y_tr, lags=int(p), old_names=False, trend=trend).fit()
-    fc = m.predict(start=len(y_tr), end=len(y_tr) + h - 1)
-    return float(fc.iloc[-1])
-
-
-def conformal_q_from_past_windows_pos_ARp(
-    y: pd.Series,
-    i_end: int,
-    *,
-    h: int = 12,
-    step_size: int = 12,
-    pi_windows: int = 24,
-    trend: str = "c",
-    p: int = 12,
-    alpha: float = 0.05,
-    min_train_n: int = 36,
-) -> float:
-    errs = []
-
-    for k in range(1, int(pi_windows) + 1):
-        i_cal = i_end - k * int(step_size)
-        i_cal_fore = i_cal + int(h)
-
-        if i_cal < 0 or i_cal_fore >= len(y):
-            continue
-
-        y_tr_cal = y.iloc[: i_cal + 1]
-        if len(y_tr_cal) < max(int(min_train_n), int(p) + 2):
-            continue
-
-        try:
-            yhat_cal = fit_predict_ar_p(y_tr_cal, h=int(h), trend=trend, p=int(p))
-        except Exception:
-            continue
-
-        err = abs(float(y.iloc[i_cal_fore]) - float(yhat_cal))
-        if np.isfinite(err):
-            errs.append(err)
-
-    if len(errs) == 0:
-        return np.nan
-
-    n = len(errs)
-    q_level = np.ceil((n + 1) * (1 - float(alpha))) / n
-    q_level = min(max(q_level, 0.0), 1.0)
-    return float(np.quantile(errs, q_level))
-
-
-# ============================================================
-# ---------- Pseudo-OOS runner ----------
-# ============================================================
-
-def run_pseudo_oos_ar_p_no_bagging(
-    y: pd.Series,
-    *,
-    h: int = DEFAULT_CFG["h"],
-    min_train_n: int = DEFAULT_CFG["min_train_n"],
-    trend: str = DEFAULT_CFG["trend"],
-    p_grid=DEFAULT_CFG["p_grid"],
-    cv_update_every_months: int = DEFAULT_CFG["cv_update_every_months"],
-    cv_anchor: pd.Timestamp = DEFAULT_CFG["cv_anchor"],
-    use_conformal: bool = DEFAULT_CFG["use_conformal"],
-    alpha: float = DEFAULT_CFG["alpha"],
-    step_size: int = DEFAULT_CFG["step_size"],
-    pi_windows: int = DEFAULT_CFG["pi_windows"],
-    verbose_cv: bool = True,
-):
-    """
-    Retourne:
-      - df_oos: index=date_fore (t_end + h), colonnes:
-          y_hat, y_true, p_selected, lo_95, hi_95, y_hat_base
-      - meta: dict avec last_model, last_fit_end
-    """
-    rows = []
-    last_model = None
-    last_fit_end = None
-    current_p = None
-
-    last_t_end = y.index.max() - relativedelta(months=h)
-
-    for i_end, t_end in enumerate(y.index):
-        if t_end > last_t_end:
-            break
-
-        y_tr = y.loc[:t_end]
-        if len(y_tr) < int(min_train_n):
-            continue
-
-        # Re-CV à partir de cv_anchor tous les cv_update_every_months
-        if t_end >= cv_anchor:
-            m = months_since(cv_anchor, t_end)
-            need_cv = (m % int(cv_update_every_months) == 0)
-        else:
-            need_cv = False
-
-        if current_p is None and not need_cv:
-            current_p = 1
-
-        if need_cv:
-            current_p = select_p_by_cv(y_tr, p_grid, int(h), int(min_train_n), trend)
-            if verbose_cv:
-                print(f"[CV] {t_end.date()} → p* = {current_p}")
-
-        # Fit + forecast h (BASE)
-        arp = AutoReg(y_tr, lags=int(current_p), old_names=False, trend=trend).fit()
-        last_model = arp
-        last_fit_end = t_end
-
-        fc = arp.predict(start=len(y_tr), end=len(y_tr) + int(h) - 1)
-        yhat_h = float(fc.iloc[-1])
-        yhat_base = yhat_h
-
-        t_fore = t_end + relativedelta(months=h)
-        if t_fore not in y.index:
-            continue
-        y_true = float(y.loc[t_fore])
-
-        lo_95 = np.nan
-        hi_95 = np.nan
-
-        if use_conformal:
-            q = conformal_q_from_past_windows_pos_ARp(
-                y=y, i_end=i_end,
-                h=int(h), step_size=int(step_size), pi_windows=int(pi_windows),
-                trend=trend, p=int(current_p), alpha=float(alpha),
-                min_train_n=int(min_train_n),
-            )
-            if np.isfinite(q):
-                lo_95 = float(yhat_h - q)
-                hi_95 = float(yhat_h + q)
-
-        rows.append((t_fore, yhat_h, y_true, int(current_p), lo_95, hi_95, yhat_base))
-
-    if rows:
-        df_oos = (
-            pd.DataFrame(
-                rows,
-                columns=["date", "y_hat", "y_true", "p_selected", "lo_95", "hi_95", "y_hat_base"],
-            )
-            .set_index("date")
-            .sort_index()
-        )
-    else:
-        df_oos = pd.DataFrame(
-            columns=["y_hat", "y_true", "p_selected", "lo_95", "hi_95", "y_hat_base"]
-        )
-        df_oos.index = pd.to_datetime(pd.Index([]))
-
-    meta = {"last_model": last_model, "last_fit_end": last_fit_end}
-    return df_oos, meta
-
+        ts_df = ts_df.dropna(
+            subset=[target_name] + exog_cols_lagged
+        ).reset_index(drop=True)
+
+    return ts_df, exog_cols_lagged
 
 # -----------------------------
 # Helpers temps
@@ -561,11 +229,11 @@ def _slice_cv_block(ts, cutoff_start, n_windows, h):
 
 
 # -----------------------------
-# Spec modèle (tu ajoutes juste ici)
+# Spec modèle 
 # -----------------------------
 @dataclass
 class ModelSpec:
-    name: str                         # "LR", "RIDGE", "LGBM", etc.
+    name: str                         #
     build_mlf: Callable[[str, Dict[str, Any]], MLForecast]  # (freq, params)->MLForecast
     pred_col: str                     # colonne de forecast dans cv (ex "LR")
     tunable: bool = False
@@ -576,6 +244,7 @@ class ModelSpec:
     tune_every_months: int = 36
     use_conformal_in_tune: bool = False
     fixed_params: Optional[Dict[str, Any]] = None
+
 
 # -----------------------------
 # Tuner générique (pour tous les modèles)
@@ -640,9 +309,13 @@ def _tune_on_train(
 
     return best_params, float(best_score)
 
+
+
 # -----------------------------
 # Runner multi-modèles : tu ajoutes juste un spec dans la liste
 # -----------------------------
+
+
 def run_backtesting_generic(
     ts: pd.DataFrame,
     *,
@@ -718,7 +391,7 @@ def run_backtesting_generic(
                .reset_index(drop=True)
     )
 
-    meta = {"metas": metas, "bundles": bundles} 
+    meta = {"metas": metas, "bundles": bundles}  # ✅ NOUVEAU
     return bkt_final, meta
 
 
@@ -906,94 +579,3139 @@ def backtest_one_model_tune_blocks(
     return bkt, meta
 
 
-# Transform Backtesting
+import pandas as pd
+
 
 def prepare_backtest_partitions(
-    bkt_df: pd.DataFrame,
-    *,
-    exp_start,
-    exp_end,
+    df: pd.DataFrame,
     date_col: str = "ds",
+    start_date=None,
+    end_date=None,
     bins=None,
     labels=None,
+    partition_col: str = "partition",
+    cutoff_col: str = "cutoff",
+    drop_na_date: bool = True,
+    verbose: bool = True,
 ) -> pd.DataFrame:
     """
-    Clean backtest dataframe and create time partitions.
+    Prépare un DataFrame de backtest en :
+    1. copiant le DataFrame
+    2. convertissant la colonne date en datetime
+    3. supprimant éventuellement la timezone
+    4. filtrant sur [start_date, end_date]
+    5. créant une colonne de partition temporelle avec pd.cut
 
-    Parameters
+    Paramètres
     ----------
-    bkt_df : DataFrame
-        Backtest dataframe (ex: bkt_models_final)
-    exp_start : datetime-like
-        Start of evaluation window
-    exp_end : datetime-like
-        End of evaluation window
-    date_col : str
-        Date column (default: "ds")
-    bins : list-like
-        Partition boundaries
-    labels : list-like
-        Partition labels
+    df : pd.DataFrame
+        DataFrame source.
+    date_col : str, default="ds"
+        Nom de la colonne de date à utiliser pour les partitions.
+    start_date : str or pd.Timestamp, optional
+        Date minimale incluse.
+    end_date : str or pd.Timestamp, optional
+        Date maximale incluse.
+    bins : list-like, optional
+        Bornes temporelles pour pd.cut.
+        Exemple :
+        ["1990-01-01","2000-01-01","2009-01-01","2020-01-01","2025-09-01"]
+    labels : list-like, optional
+        Labels associés aux bins.
+        Exemple :
+        ["1990-1999", "2000-2008", "2009-2019", "2020-end"]
+    partition_col : str, default="partition"
+        Nom de la colonne de partition créée.
+    cutoff_col : str, default="cutoff"
+        Nom éventuel de la colonne cutoff pour affichage debug.
+    drop_na_date : bool, default=True
+        Si True, supprime les lignes où la date est invalide.
+    verbose : bool, default=True
+        Si True, affiche un aperçu et les effectifs par partition.
 
-    Returns
-    -------
-    DataFrame
-        Backtest dataframe with partition column
+    Retour
+    ------
+    pd.DataFrame
+        DataFrame préparé avec colonne de partition.
     """
 
-    df = bkt_df.copy()
+    out = df.copy()
 
-    # ------------------------------------------------
-    # Date cleaning
-    # ------------------------------------------------
-    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    # Conversion date
+    out[date_col] = pd.to_datetime(out[date_col], errors="coerce")
 
-    if pd.api.types.is_datetime64tz_dtype(df[date_col]):
-        df[date_col] = df[date_col].dt.tz_convert(None)
+    # Enlever timezone si besoin
+    if pd.api.types.is_datetime64tz_dtype(out[date_col]):
+        out[date_col] = out[date_col].dt.tz_convert(None)
 
-    df = df.dropna(subset=[date_col])
+    # Drop NA dates
+    if drop_na_date:
+        out = out.dropna(subset=[date_col])
 
-    # ------------------------------------------------
-    # Filter evaluation window
-    # ------------------------------------------------
-    exp_start = pd.Timestamp(exp_start)
-    exp_end = pd.Timestamp(exp_end)
+    # Filtre période
+    if start_date is not None:
+        start_date = pd.to_datetime(start_date)
+        out = out[out[date_col] >= start_date]
 
-    df = df[(df[date_col] >= exp_start) & (df[date_col] <= exp_end)].reset_index(drop=True)
+    if end_date is not None:
+        end_date = pd.to_datetime(end_date)
+        out = out[out[date_col] <= end_date]
 
-    # ------------------------------------------------
-    # Default partitions
-    # ------------------------------------------------
-    if bins is None:
-        bins = pd.to_datetime([
-            "1990-01-01",
-            "2000-01-01",
-            "2009-01-01",
-            "2020-01-01",
-            "2025-09-01",
-        ])
+    out = out.reset_index(drop=True)
 
-    if labels is None:
-        labels = [
-            "1990-1999",
-            "2000-2008",
-            "2009-2019",
-            "2020-end",
-        ]
+    # Partitionnement
+    if bins is not None and labels is not None:
+        bins = pd.to_datetime(bins)
+        out[partition_col] = pd.cut(
+            out[date_col],
+            bins=bins,
+            labels=labels,
+            right=False,
+            include_lowest=True,
+        )
+        out = out.dropna(subset=[partition_col]).reset_index(drop=True)
 
-    # ------------------------------------------------
-    # Create partitions
-    # ------------------------------------------------
-    df["partition"] = pd.cut(
-        df[date_col],
-        bins=bins,
-        labels=labels,
-        right=False,
-        include_lowest=True,
+    # Affichage
+    if verbose:
+        cols_to_show = [date_col, partition_col]
+        if cutoff_col in out.columns:
+            cols_to_show.insert(1, cutoff_col)
+
+        print(out[cols_to_show].head(10))
+
+        if partition_col in out.columns:
+            print(out[partition_col].value_counts().sort_index())
+
+    return out
+
+
+# =========================================================
+# ✅ EXPLICABILITÉ ROLLING GÉNÉRALE
+# Permutation MAE + Permutation Deviance + SHAP share
+# =========================================================
+
+import numpy as np
+import pandas as pd
+from sklearn.metrics import mean_absolute_error
+
+
+# =========================================================
+# (0) Métrique deviance = MSE
+# =========================================================
+def mse_deviance(y_true, y_pred):
+    y_true = np.asarray(y_true, float)
+    y_pred = np.asarray(y_pred, float)
+    m = np.isfinite(y_true) & np.isfinite(y_pred)
+    return float(np.mean((y_true[m] - y_pred[m]) ** 2)) if np.any(m) else np.nan
+
+
+# =========================================================
+# (1) Helpers
+# =========================================================
+def _unwrap_estimator_from_mlf(maybe_mlf, preferred_key=None):
+    if hasattr(maybe_mlf, "models_") and isinstance(getattr(maybe_mlf, "models_"), dict):
+        d = maybe_mlf.models_
+        if preferred_key is not None and preferred_key in d:
+            return d[preferred_key]
+        return next(iter(d.values()))
+    return maybe_mlf
+
+
+def _predict_any(model_obj, X_feat: pd.DataFrame, *, model_key=None) -> np.ndarray:
+    est = _unwrap_estimator_from_mlf(model_obj, preferred_key=model_key)
+
+    drop_cols = [c for c in ["ds", "unique_id", "y"] if c in X_feat.columns]
+    X = X_feat.drop(columns=drop_cols, errors="ignore")
+
+    fn = getattr(est, "feature_names_in_", None)
+    if fn is not None:
+        fn = [c for c in fn if c in X.columns]
+        if len(fn) > 0:
+            X = X[fn]
+
+    return np.asarray(est.predict(X), float)
+
+
+# =========================================================
+# (2) Permutation importance ROLLING
+# =========================================================
+def perm_ratio_pseudo_oos(
+    *,
+    exp_results: dict,
+    df_all: pd.DataFrame,
+    target_col: str,
+    h: int,
+    metric_fn,
+    restrict_eval_window=None,
+    n_repeats: int = 10,
+    random_state: int = 42,
+    model_key: str | None = None,
+):
+    models = list(exp_results["models"])
+    feats = list(exp_results["features"])
+    periods = pd.to_datetime(pd.Index(exp_results["train_periods"]))
+
+    df = df_all.copy().sort_values("ds").reset_index(drop=True)
+    df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
+    df = df.dropna(subset=["ds"]).reset_index(drop=True)
+
+    if restrict_eval_window is not None:
+        s, e = pd.to_datetime(restrict_eval_window[0]), pd.to_datetime(restrict_eval_window[1])
+        df = df[(df["ds"] >= s) & (df["ds"] <= e)].copy()
+
+    if len(df) <= h + 5:
+        return pd.DataFrame(columns=["feature", "ratio_mean", "ratio_std", "n_windows"])
+
+    # Align horizon
+    X_full = df[["ds"] + feats].copy()
+    y_full = df[target_col].shift(-h)
+
+    X_full = X_full.iloc[:-h].reset_index(drop=True)
+    y_full = y_full.iloc[:-h].reset_index(drop=True)
+
+    ok = ~X_full[feats].isna().any(axis=1) & y_full.notna()
+    X_full = X_full.loc[ok].reset_index(drop=True)
+    y_full = y_full.loc[ok].reset_index(drop=True)
+
+    if len(X_full) < 30:
+        return pd.DataFrame(columns=["feature", "ratio_mean", "ratio_std", "n_windows"])
+
+    rng = np.random.default_rng(random_state)
+    ratios = {f: [] for f in feats}
+
+    n = min(len(models), len(periods))
+
+    for i in range(n):
+        model = models[i]
+        end_time = periods[i]
+
+        idx = X_full["ds"] <= end_time
+        Xw = X_full.loc[idx].copy()
+        yw = y_full.loc[idx].copy()
+
+        if len(Xw) < 25:
+            continue
+
+        yhat = _predict_any(model, Xw, model_key=model_key)
+        base = metric_fn(yw.to_numpy(), yhat)
+
+        if not np.isfinite(base) or base == 0:
+            continue
+
+        for f in feats:
+            v = Xw[f].to_numpy()
+            perm_scores = []
+
+            for _ in range(n_repeats):
+                Xp = Xw.copy()
+                Xp[f] = v[rng.permutation(len(v))]
+                ypp = _predict_any(model, Xp, model_key=model_key)
+                perm_scores.append(metric_fn(yw.to_numpy(), ypp))
+
+            ratios[f].append(float(np.mean(perm_scores) / base))
+
+    rows = []
+    for f, arr in ratios.items():
+        if len(arr) > 0:
+            rows.append({
+                "feature": f,
+                "ratio_mean": float(np.mean(arr)),
+                "ratio_std": float(np.std(arr)),
+                "n_windows": int(len(arr)),
+            })
+
+    if len(rows) == 0:
+        return pd.DataFrame(columns=["feature", "ratio_mean", "ratio_std", "n_windows"])
+
+    return (
+        pd.DataFrame(rows)
+        .sort_values("ratio_mean", ascending=False)
+        .reset_index(drop=True)
     )
 
-    df = df.dropna(subset=["partition"]).reset_index(drop=True)
 
-    return df
+# =========================================================
+# (3) SHAP SHARE ROLLING
+# =========================================================
+def shap_share_pseudo_oos(
+    *,
+    exp_results: dict,
+    model_key: str | None = None,
+):
+    feats = list(exp_results["features"])
+    models = list(exp_results["models"])
+
+    weights = {f: [] for f in feats}
+
+    for model in models:
+        est = _unwrap_estimator_from_mlf(model, preferred_key=model_key)
+
+        if hasattr(est, "coef_"):
+            w = np.abs(np.asarray(est.coef_, float)).reshape(-1)
+        elif hasattr(est, "feature_importances_"):
+            w = np.abs(np.asarray(est.feature_importances_, float)).reshape(-1)
+        else:
+            continue
+
+        w = w[:len(feats)]
+        total = w.sum()
+
+        if total == 0 or not np.isfinite(total):
+            continue
+
+        share = w / total
+
+        for f, val in zip(feats[:len(share)], share):
+            weights[f].append(float(val))
+
+    rows = []
+    for f, arr in weights.items():
+        if len(arr) > 0:
+            rows.append({
+                "feature": f,
+                "shap_share_mean": float(np.mean(arr)),
+                "shap_share_std": float(np.std(arr)),
+                "n_windows": int(len(arr)),
+            })
+
+    if len(rows) == 0:
+        return pd.DataFrame(columns=["feature", "shap_share_mean", "shap_share_std", "n_windows"])
+
+    return (
+        pd.DataFrame(rows)
+        .sort_values("shap_share_mean", ascending=False)
+        .reset_index(drop=True)
+    )
 
 
+# =========================================================
+# (4) Fonction générale par partition
+# =========================================================
+import numpy as np
+import pandas as pd
+from sklearn.metrics import mean_absolute_error
+
+
+def compute_explainability_by_partition(
+    *,
+    bkt_score: pd.DataFrame,
+    ts_df: pd.DataFrame,
+    meta_models: dict,
+    target_col: str = "y",
+    date_col: str = "ds",
+    partition_col: str = "partition",
+    horizon: int = 12,
+    normalize_month_start: bool = True,
+    verbose: bool = True,
+):
+    """
+    Calcule l'explicabilité rolling par partition :
+    - Permutation MAE
+    - Permutation Deviance
+    - SHAP share
+
+    Paramètres
+    ----------
+    bkt_score : pd.DataFrame
+        DataFrame de backtest contenant au moins [date_col, partition_col].
+    ts_df : pd.DataFrame
+        Série temporelle complète contenant au moins [date_col, target_col] + features.
+    meta_models : dict
+        Dictionnaire contenant obligatoirement meta_models["bundles"] avec structure :
+        {
+            "bundles": {
+                model_name: {
+                    "models": [...],
+                    "train_fit_dates": [...],
+                    "features": [...]
+                }
+            }
+        }
+    target_col : str
+        Nom de la variable cible.
+    date_col : str
+        Nom de la colonne date.
+    partition_col : str
+        Nom de la colonne partition.
+    horizon : int
+        Horizon de forecast h.
+    normalize_month_start : bool
+        Si True, convertit les dates en début de mois.
+    verbose : bool
+        Si True, affiche la progression.
+
+    Retour
+    ------
+    tuple
+        (
+            results_perm_mae_by_part,
+            results_perm_deviance_by_part,
+            results_shap_share_by_part
+        )
+    """
+
+    results_perm_mae_by_part = {}
+    results_perm_deviance_by_part = {}
+    results_shap_share_by_part = {}
+
+    if partition_col not in bkt_score.columns:
+        raise ValueError(f"Colonne absente dans bkt_score: {partition_col}")
+
+    if date_col not in bkt_score.columns:
+        raise ValueError(f"Colonne absente dans bkt_score: {date_col}")
+
+    if date_col not in ts_df.columns:
+        raise ValueError(f"Colonne absente dans ts_df: {date_col}")
+
+    if target_col not in ts_df.columns:
+        raise ValueError(f"Colonne absente dans ts_df: {target_col}")
+
+    if "bundles" not in meta_models or not meta_models["bundles"]:
+        raise ValueError("Aucun bundle disponible dans meta_models['bundles'].")
+
+    bkt_local = bkt_score.copy()
+    bkt_local[date_col] = pd.to_datetime(bkt_local[date_col], errors="coerce")
+
+    if normalize_month_start:
+        bkt_local[date_col] = (
+            bkt_local[date_col]
+            .dt.to_period("M")
+            .dt.to_timestamp(how="start")
+            .dt.normalize()
+        )
+
+    bkt_local = bkt_local.dropna(subset=[date_col]).reset_index(drop=True)
+
+    partitions = sorted(bkt_local[partition_col].astype(str).unique())
+
+    if verbose:
+        print("Partitions détectées:", partitions)
+
+    for partition in partitions:
+
+        if verbose:
+            print(f"\n==============================")
+            print(f"PARTITION: {partition}")
+            print(f"==============================")
+
+        # -----------------------------------------------------
+        # 1) Filtrage temporel des données
+        # -----------------------------------------------------
+        ts_part = ts_df.copy()
+        ts_part[date_col] = pd.to_datetime(ts_part[date_col], errors="coerce")
+
+        if normalize_month_start:
+            ts_part[date_col] = (
+                ts_part[date_col]
+                .dt.to_period("M")
+                .dt.to_timestamp(how="start")
+                .dt.normalize()
+            )
+
+        ts_part = ts_part.dropna(subset=[date_col]).copy()
+
+        dates_part = bkt_local.loc[
+            bkt_local[partition_col].astype(str) == partition,
+            date_col
+        ]
+
+        if len(dates_part) == 0:
+            continue
+
+        start_p = dates_part.min()
+        end_p = dates_part.max()
+
+        ts_part = ts_part[
+            (ts_part[date_col] >= start_p) &
+            (ts_part[date_col] <= end_p)
+        ].copy()
+
+        if verbose:
+            print("Rows used:", len(ts_part))
+
+        if ts_part.empty:
+            results_perm_mae_by_part.setdefault(partition, {})
+            results_perm_deviance_by_part.setdefault(partition, {})
+            results_shap_share_by_part.setdefault(partition, {})
+            continue
+
+        # -----------------------------------------------------
+        # 2) Calcul par modèle
+        # -----------------------------------------------------
+        for model_name, bundle in meta_models["bundles"].items():
+
+            if verbose:
+                print(f"→ Computing {model_name} for {partition}")
+
+            if not all(k in bundle for k in ["models", "train_fit_dates", "features"]):
+                if verbose:
+                    print(f"   ⚠️ Bundle incomplet pour {model_name}.")
+                continue
+
+            models_all = bundle["models"]
+            dates_all = pd.to_datetime(bundle["train_fit_dates"], errors="coerce")
+            feats_all = list(bundle["features"])
+
+            valid_mask = ~pd.isna(dates_all)
+            models_all = [m for m, keep in zip(models_all, valid_mask) if keep]
+            dates_all = [d for d, keep in zip(dates_all, valid_mask) if keep]
+
+            # filtrage rolling jusqu'à la fin de partition
+            mask = [d <= end_p for d in dates_all]
+
+            models_filtered = [m for m, keep in zip(models_all, mask) if keep]
+            dates_filtered = [d for d, keep in zip(dates_all, mask) if keep]
+
+            if len(models_filtered) == 0:
+                if verbose:
+                    print("   ⚠️ Aucun modèle valide pour cette partition.")
+                continue
+
+            exp = {
+                "models": models_filtered,
+                "features": feats_all,
+                "train_periods": dates_filtered,
+            }
+
+            # ---------------------------
+            # Permutation MAE
+            # ---------------------------
+            try:
+                df_perm_mae = perm_ratio_pseudo_oos(
+                    exp_results=exp,
+                    df_all=ts_part,
+                    target_col=target_col,
+                    h=horizon,
+                    metric_fn=mean_absolute_error,
+                    restrict_eval_window=(str(start_p.date()), str(end_p.date())),
+                    model_key=model_name,
+                )
+            except Exception as e:
+                if verbose:
+                    print(f"   ⚠️ perm_mae failed: {e}")
+                df_perm_mae = pd.DataFrame(
+                    columns=["feature", "ratio_mean", "ratio_std", "n_windows"]
+                )
+
+            # ---------------------------
+            # Permutation Deviance
+            # ---------------------------
+            try:
+                df_perm_dev = perm_ratio_pseudo_oos(
+                    exp_results=exp,
+                    df_all=ts_part,
+                    target_col=target_col,
+                    h=horizon,
+                    metric_fn=mse_deviance,
+                    restrict_eval_window=(str(start_p.date()), str(end_p.date())),
+                    model_key=model_name,
+                )
+            except Exception as e:
+                if verbose:
+                    print(f"   ⚠️ perm_dev failed: {e}")
+                df_perm_dev = pd.DataFrame(
+                    columns=["feature", "ratio_mean", "ratio_std", "n_windows"]
+                )
+
+            # ---------------------------
+            # SHAP share
+            # ---------------------------
+            try:
+                df_shap = shap_share_pseudo_oos(
+                    exp_results=exp,
+                    model_key=model_name,
+                )
+            except Exception as e:
+                if verbose:
+                    print(f"   ⚠️ shap_share failed: {e}")
+                df_shap = pd.DataFrame(
+                    columns=["feature", "shap_share_mean", "shap_share_std", "n_windows"]
+                )
+
+            # ---------------------------
+            # Stockage
+            # ---------------------------
+            results_perm_mae_by_part.setdefault(partition, {})[model_name] = df_perm_mae
+            results_perm_deviance_by_part.setdefault(partition, {})[model_name] = df_perm_dev
+            results_shap_share_by_part.setdefault(partition, {})[model_name] = df_shap
+
+    if verbose:
+        print("\n✅ Explainability ready by partition")
+        print("Partitions calculées:", list(results_perm_mae_by_part.keys()))
+
+    return (
+        results_perm_mae_by_part,
+        results_perm_deviance_by_part,
+        results_shap_share_by_part,
+    )
+
+
+import numpy as np
+import pandas as pd
+
+
+def build_score_and_explainability_tables(
+    *,
+    bkt_score: pd.DataFrame,
+    results_perm_mae_by_part: dict,
+    results_perm_deviance_by_part: dict,
+    results_shap_share_by_part: dict,
+    models=None,
+    unique_id_col: str = "unique_id",
+    date_col: str = "ds",
+    cutoff_col: str = "cutoff",
+    target_col: str = "y",
+    partition_col: str = "partition",
+    top_k: int = 2,
+    verbose: bool = True,
+):
+    """
+    Construit :
+    - score_df      : métriques de performance agrégées
+    - score_df_exp  : score enrichi avec explicabilité
+    - leaderboard_exp : top_k modèles par partition
+
+    Paramètres
+    ----------
+    bkt_score : pd.DataFrame
+        DataFrame de backtest contenant y, partitions, forecasts et intervalles.
+    results_perm_mae_by_part : dict
+        Dictionnaire {partition: {model: df_perm_mae}}
+    results_perm_deviance_by_part : dict
+        Dictionnaire {partition: {model: df_perm_dev}}
+    results_shap_share_by_part : dict
+        Dictionnaire {partition: {model: df_shap}}
+    models : list[str] | None
+        Liste des modèles à considérer. Ex: ["LR", "RIDGE", "LGBM"]
+    unique_id_col, date_col, cutoff_col, target_col, partition_col : str
+        Noms de colonnes.
+    top_k : int
+        Nombre de modèles à garder par partition dans le leaderboard.
+    verbose : bool
+        Affichage des résumés.
+
+    Retour
+    ------
+    tuple
+        long_sc2, score_df, score_df_exp, leaderboard_exp
+    """
+
+    if models is None:
+        models = ["LR", "RIDGE", "LGBM"]
+
+    tmp = bkt_score.copy()
+
+    required_cols = [unique_id_col, date_col, target_col, partition_col]
+    missing = [c for c in required_cols if c not in tmp.columns]
+    if missing:
+        raise ValueError(f"Colonnes manquantes dans bkt_score: {missing}")
+
+    # =========================================================
+    # 1) Sécurité bornes (lower <= upper)
+    # =========================================================
+    for m in models:
+        lo = f"{m}-lo-95"
+        hi = f"{m}-hi-95"
+        if lo in tmp.columns and hi in tmp.columns:
+            tmp[[lo, hi]] = np.sort(tmp[[lo, hi]].to_numpy(), axis=1)
+
+    # =========================================================
+    # 2) Wide -> Long + features de scoring
+    # =========================================================
+    rows = []
+
+    base_cols = [c for c in [unique_id_col, date_col, cutoff_col, target_col, partition_col] if c in tmp.columns]
+
+    for m in models:
+        lo = f"{m}-lo-95"
+        hi = f"{m}-hi-95"
+
+        if m not in tmp.columns:
+            continue
+
+        s = tmp[base_cols].copy()
+        s["model_label"] = m
+        s["model_name"] = m
+
+        s["forecast"] = tmp[m]
+        s["lower"] = tmp[lo] if lo in tmp.columns else np.nan
+        s["upper"] = tmp[hi] if hi in tmp.columns else np.nan
+
+        s["abs_err"] = (s[target_col] - s["forecast"]).abs()
+        s["covered"] = ((s[target_col] >= s["lower"]) & (s[target_col] <= s["upper"])).astype(int)
+        s["int_width"] = (s["upper"] - s["lower"]).abs()
+
+        rows.append(s)
+
+    if not rows:
+        raise ValueError("Aucune ligne produite à partir des modèles demandés.")
+
+    long_sc = pd.concat(rows, ignore_index=True)
+    long_sc[partition_col] = long_sc[partition_col].astype(str)
+
+    # =========================================================
+    # 3) Ajouter partition ALL
+    # =========================================================
+    long_all = long_sc.copy()
+    long_all[partition_col] = "ALL"
+    long_sc2 = pd.concat([long_sc, long_all], ignore_index=True)
+
+    # =========================================================
+    # 4) Score agrégé
+    # =========================================================
+    score_df = (
+        long_sc2
+        .groupby([unique_id_col, "model_label", "model_name", partition_col], observed=True)
+        .agg(
+            mae=("abs_err", "mean"),
+            coverage=("covered", "mean"),
+            width=("int_width", "mean"),
+            n=(target_col, "size"),
+        )
+        .reset_index()
+    )
+
+    # =========================================================
+    # 5) Helpers explicabilité
+    # =========================================================
+    def extract_top1_perm_by_part(res_dict_by_part):
+        rows_out = []
+
+        for partition, models_dict in res_dict_by_part.items():
+            if not isinstance(models_dict, dict):
+                continue
+
+            for model, df in models_dict.items():
+                if not isinstance(df, pd.DataFrame) or df.empty:
+                    continue
+                if "feature" not in df.columns or "ratio_mean" not in df.columns:
+                    continue
+
+                top = df.sort_values("ratio_mean", ascending=False).iloc[0]
+                rows_out.append({
+                    partition_col: str(partition),
+                    "model_label": str(model),
+                    "perm_top1_feature": str(top["feature"]),
+                    "perm_top1_value": float(top["ratio_mean"]),
+                })
+
+        return pd.DataFrame(rows_out)
+
+    def extract_top1_shap_by_part(res_dict_by_part):
+        rows_out = []
+
+        for partition, models_dict in res_dict_by_part.items():
+            if not isinstance(models_dict, dict):
+                continue
+
+            for model, df in models_dict.items():
+                if not isinstance(df, pd.DataFrame) or df.empty:
+                    continue
+                if "feature" not in df.columns or "shap_share_mean" not in df.columns:
+                    continue
+
+                top = df.sort_values("shap_share_mean", ascending=False).iloc[0]
+                rows_out.append({
+                    partition_col: str(partition),
+                    "model_label": str(model),
+                    "shap_top1_feature": str(top["feature"]),
+                    "shap_top1_value": float(top["shap_share_mean"]),
+                })
+
+        return pd.DataFrame(rows_out)
+
+    perm_mae_top1 = extract_top1_perm_by_part(results_perm_mae_by_part).rename(columns={
+        "perm_top1_feature": "perm_mae_top1_feature",
+        "perm_top1_value": "perm_mae_top1",
+    })
+
+    perm_dev_top1 = extract_top1_perm_by_part(results_perm_deviance_by_part).rename(columns={
+        "perm_top1_feature": "perm_dev_top1_feature",
+        "perm_top1_value": "perm_dev_top1",
+    })
+
+    shap_top1 = extract_top1_shap_by_part(results_shap_share_by_part).rename(columns={
+        "shap_top1_feature": "shap_share_top1_feature",
+        "shap_top1_value": "shap_share_top1",
+    })
+
+    # =========================================================
+    # 6) Ajouter ALL pondéré par n
+    # =========================================================
+    weights_df = (
+        score_df[score_df[partition_col] != "ALL"][
+            [partition_col, "model_label", "n"]
+        ]
+        .drop_duplicates()
+    )
+
+    def add_all_partition_weighted(df_exp, value_cols):
+        if df_exp.empty:
+            return df_exp
+
+        dfw = df_exp.merge(weights_df, on=[partition_col, "model_label"], how="left")
+        dfw["n"] = dfw["n"].fillna(0).astype(float)
+
+        feature_cols = [c for c in dfw.columns if "feature" in c]
+
+        out = []
+        for model, g in dfw[dfw[partition_col] != "ALL"].groupby("model_label"):
+            row = {"model_label": model, partition_col: "ALL"}
+
+            if feature_cols:
+                g2 = g.sort_values("n", ascending=False)
+                for fc in feature_cols:
+                    row[fc] = g2.iloc[0][fc]
+
+            for vc in value_cols:
+                num = (g[vc].astype(float) * g["n"]).sum()
+                den = g["n"].sum()
+                row[vc] = float(num / den) if den > 0 else np.nan
+
+            out.append(row)
+
+        df_all = pd.DataFrame(out)
+        return pd.concat([df_exp, df_all], ignore_index=True)
+
+    perm_mae_top1 = add_all_partition_weighted(perm_mae_top1, value_cols=["perm_mae_top1"])
+    perm_dev_top1 = add_all_partition_weighted(perm_dev_top1, value_cols=["perm_dev_top1"])
+    shap_top1 = add_all_partition_weighted(shap_top1, value_cols=["shap_share_top1"])
+
+    # =========================================================
+    # 7) Merge explicabilité
+    # =========================================================
+    score_df_exp = (
+        score_df
+        .merge(perm_mae_top1, on=[partition_col, "model_label"], how="left")
+        .merge(perm_dev_top1, on=[partition_col, "model_label"], how="left")
+        .merge(shap_top1, on=[partition_col, "model_label"], how="left")
+    )
+
+    # =========================================================
+    # 8) Leaderboard enrichi
+    # =========================================================
+    leaderboard_exp = (
+        score_df_exp
+        .sort_values(
+            by=[partition_col, "mae", "coverage", "width"],
+            ascending=[True, True, False, True],
+        )
+        .groupby(partition_col, as_index=False)
+        .head(top_k)
+        .reset_index(drop=True)
+    )
+
+    if verbose:
+        print("\n=== SCORE COMPLET (Performance + Explicabilité) ===")
+        print(score_df_exp.sort_values([partition_col, "mae"]).head(50))
+
+        print(f"\n=== TOP {top_k} par partition (incluant ALL) ===")
+        print(leaderboard_exp)
+
+    return long_sc2, score_df, score_df_exp, leaderboard_exp
+
+import os
+import io
+import json
+import pickle
+import joblib
+import shutil
+import logging
+import warnings
+from pathlib import Path
+from contextlib import redirect_stdout, redirect_stderr
+
+import numpy as np
+import pandas as pd
+import mlflow
+import mlflow.data
+from mlflow.tracking import MlflowClient
+
+warnings.filterwarnings("ignore")
+logging.getLogger("mlflow").setLevel(logging.ERROR)
+
+# Optional flavors
+try:
+    import mlflow.sklearn
+    _HAS_MLFLOW_SKLEARN = True
+except Exception:
+    _HAS_MLFLOW_SKLEARN = False
+
+try:
+    import mlflow.lightgbm
+    _HAS_MLFLOW_LIGHTGBM = True
+except Exception:
+    _HAS_MLFLOW_LIGHTGBM = False
+
+try:
+    import mlflow.xgboost
+    _HAS_MLFLOW_XGBOOST = True
+except Exception:
+    _HAS_MLFLOW_XGBOOST = False
+
+try:
+    import mlflow.statsmodels
+    _HAS_MLFLOW_STATSMODELS = True
+except Exception:
+    _HAS_MLFLOW_STATSMODELS = False
+
+try:
+    import mlflow.pyfunc
+    _HAS_MLFLOW_PYFUNC = True
+except Exception:
+    _HAS_MLFLOW_PYFUNC = False
+
+
+# =========================================================
+# Helpers généraux
+# =========================================================
+def _ensure_dir(path):
+    Path(path).mkdir(parents=True, exist_ok=True)
+
+
+def _json_default(obj):
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, (np.ndarray,)):
+        return obj.tolist()
+    if isinstance(obj, (pd.Timestamp,)):
+        return obj.isoformat()
+    if isinstance(obj, (pd.Period,)):
+        return str(obj)
+    return str(obj)
+
+
+def _safe_write_json(obj, path):
+    _ensure_dir(Path(path).parent)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=2, default=_json_default)
+
+
+def _safe_write_pickle(obj, path):
+    _ensure_dir(Path(path).parent)
+    with open(path, "wb") as f:
+        pickle.dump(obj, f)
+
+
+def _normalize_ds_in_df(df, ds_col="ds"):
+    if df is None or not isinstance(df, pd.DataFrame):
+        return df
+    out = df.copy()
+    if ds_col in out.columns:
+        out[ds_col] = pd.to_datetime(out[ds_col], errors="coerce")
+        out[ds_col] = out[ds_col].dt.to_period("M").dt.to_timestamp(how="start")
+    return out
+
+
+def _subset_partition(df, partition):
+    if df is None or not isinstance(df, pd.DataFrame):
+        return None
+    if "partition" not in df.columns:
+        return None
+    out = df[df["partition"].astype(str) == str(partition)].copy()
+    return out if len(out) else None
+
+
+def _find_top1_feature(df_part, score_col):
+    if df_part is None or len(df_part) == 0 or score_col not in df_part.columns:
+        return None
+    tmp = df_part.copy().sort_values(score_col, ascending=False)
+    row = tmp.iloc[0]
+    feat_col = "feature" if "feature" in tmp.columns else None
+    if feat_col is None:
+        return None
+    return str(row[feat_col])
+
+
+def _list_artifacts_recursive(client, run_id, path=""):
+    out = []
+    items = client.list_artifacts(run_id, path)
+    for item in items:
+        if item.is_dir:
+            out.extend(_list_artifacts_recursive(client, run_id, item.path))
+        else:
+            out.append(item.path)
+    return out
+
+
+def _download_artifact(client, run_id, artifact_path, dst_dir):
+    _ensure_dir(dst_dir)
+    return client.download_artifacts(run_id, artifact_path, dst_dir)
+
+
+def _unwrap_estimator_from_mlf(maybe_mlf, preferred_key=None):
+    base = maybe_mlf
+
+    if hasattr(base, "_base"):
+        try:
+            base = base._base
+        except Exception:
+            pass
+
+    if hasattr(base, "models_") and isinstance(getattr(base, "models_"), dict):
+        d = base.models_
+        if preferred_key is not None and preferred_key in d:
+            return _unwrap_estimator_from_mlf(d[preferred_key], preferred_key=None)
+        if len(d):
+            return _unwrap_estimator_from_mlf(next(iter(d.values())), preferred_key=None)
+
+    for attr in ["model", "estimator", "_model", "_estimator"]:
+        if hasattr(base, attr):
+            try:
+                inner = getattr(base, attr)
+                if inner is not None and inner is not base:
+                    return _unwrap_estimator_from_mlf(inner, preferred_key=None)
+            except Exception:
+                pass
+
+    return base
+
+
+def _serialize_model_candidate(model_obj, base_dir, stem):
+    _ensure_dir(base_dir)
+
+    joblib_path = os.path.join(base_dir, f"{stem}.joblib")
+    pkl_path = os.path.join(base_dir, f"{stem}.pkl")
+
+    try:
+        joblib.dump(model_obj, joblib_path)
+        return joblib_path
+    except Exception:
+        pass
+
+    try:
+        with open(pkl_path, "wb") as f:
+            pickle.dump(model_obj, f)
+        return pkl_path
+    except Exception:
+        pass
+
+    return None
+
+
+def _coerce_explainability_obj(obj, model_label=None):
+    if obj is None:
+        return None
+
+    if isinstance(obj, pd.DataFrame):
+        df = obj.copy()
+
+    elif isinstance(obj, dict):
+        if model_label is not None and model_label in obj and isinstance(obj[model_label], pd.DataFrame):
+            df = obj[model_label].copy()
+        elif len(obj) > 0 and all(isinstance(v, pd.DataFrame) for v in obj.values()):
+            parts = []
+            for k, v in obj.items():
+                tmp = v.copy()
+                if "model_label" not in tmp.columns:
+                    tmp["model_label"] = str(k)
+                parts.append(tmp)
+            df = pd.concat(parts, axis=0, ignore_index=True)
+        else:
+            df = pd.DataFrame([obj])
+
+    elif isinstance(obj, (list, tuple)):
+        parts = []
+        for x in obj:
+            if isinstance(x, pd.DataFrame):
+                parts.append(x.copy())
+            elif isinstance(x, dict):
+                parts.append(pd.DataFrame([x]))
+        df = pd.concat(parts, axis=0, ignore_index=True) if len(parts) else None
+    else:
+        return None
+
+    if df is None or len(df) == 0:
+        return None
+
+    if model_label is not None and "model_label" in df.columns:
+        df = df[df["model_label"].astype(str) == str(model_label)].copy()
+
+    return df if len(df) else None
+
+
+# =========================================================
+# Helpers MLflow dataset / model
+# =========================================================
+def _infer_signature_safe(model_obj, X_example):
+    try:
+        from mlflow.models import infer_signature
+        if X_example is None or not isinstance(X_example, pd.DataFrame) or len(X_example) == 0:
+            return None
+        X_small = X_example.head(min(50, len(X_example))).copy()
+        y_pred = model_obj.predict(X_small)
+        return infer_signature(X_small, y_pred)
+    except Exception:
+        return None
+
+
+def _input_example_safe(X_example):
+    try:
+        if X_example is None or not isinstance(X_example, pd.DataFrame) or len(X_example) == 0:
+            return None
+        return X_example.head(min(5, len(X_example))).copy()
+    except Exception:
+        return None
+
+
+def _looks_like_lightgbm(model_obj):
+    name = type(model_obj).__name__.lower()
+    mod = getattr(type(model_obj), "__module__", "").lower()
+    return ("lightgbm" in mod) or ("lgbm" in name)
+
+
+def _looks_like_xgboost(model_obj):
+    name = type(model_obj).__name__.lower()
+    mod = getattr(type(model_obj), "__module__", "").lower()
+    return ("xgboost" in mod) or ("xgb" in name)
+
+
+def _looks_like_statsmodels(model_obj):
+    mod = getattr(type(model_obj), "__module__", "").lower()
+    return "statsmodels" in mod
+
+
+def _looks_like_sklearn(model_obj):
+    mod = getattr(type(model_obj), "__module__", "").lower()
+    return ("sklearn" in mod) or ("scikit_learn" in mod)
+
+
+class _GenericPyfuncWrapper(mlflow.pyfunc.PythonModel if _HAS_MLFLOW_PYFUNC else object):
+    def __init__(self, model):
+        self.model = model
+
+    def predict(self, context, model_input):
+        if isinstance(model_input, pd.DataFrame):
+            return self.model.predict(model_input)
+        return self.model.predict(pd.DataFrame(model_input))
+
+
+def _build_feast_dataset_name(feast_feature_name, model_label, partition):
+    return f"feast_{feast_feature_name}_{model_label}_{partition}"
+
+
+def _save_dataset_snapshot_for_mlflow(df_dataset, snapshot_dir, snapshot_name):
+    """
+    Sauvegarde une copie locale parquet du dataset pour fournir à MLflow
+    une source concrète et stable, plus robuste pour l'affichage UI.
+    """
+    _ensure_dir(snapshot_dir)
+
+    df_to_save = df_dataset.copy()
+    if "ds" in df_to_save.columns:
+        df_to_save["ds"] = pd.to_datetime(df_to_save["ds"], errors="coerce")
+
+    snapshot_path = os.path.join(snapshot_dir, f"{snapshot_name}.parquet")
+    df_to_save.to_parquet(snapshot_path, index=False)
+
+    # URI absolu locale
+    snapshot_uri = Path(snapshot_path).resolve().as_uri()
+    return snapshot_path, snapshot_uri
+
+
+def _log_feast_dataset_entity_to_mlflow(
+    df_dataset,
+    *,
+    feast_feature_name,
+    model_label,
+    partition,
+    tmp_dir,
+    context="training",
+    source_dataset_name=None,
+):
+    """
+    Version robuste pour FEAST:
+    - snapshot parquet local
+    - source URI concrète
+    - name explicite
+    - log_input(dataset)
+    - log_artifact(snapshot)
+    """
+    try:
+        if df_dataset is None or not isinstance(df_dataset, pd.DataFrame) or len(df_dataset) == 0:
+            return False, "Empty or invalid source_dataset_df", None
+
+        ds_df = df_dataset.copy()
+
+        # Normalisation légère
+        if "ds" in ds_df.columns:
+            ds_df["ds"] = pd.to_datetime(ds_df["ds"], errors="coerce")
+
+        dataset_name = (
+            str(source_dataset_name)
+            if source_dataset_name is not None and str(source_dataset_name).strip() != ""
+            else _build_feast_dataset_name(feast_feature_name, model_label, partition)
+        )
+
+        snapshot_dir = os.path.join(tmp_dir, "dataset_snapshot")
+        snapshot_path, snapshot_uri = _save_dataset_snapshot_for_mlflow(
+            ds_df,
+            snapshot_dir=snapshot_dir,
+            snapshot_name=dataset_name,
+        )
+
+        # Construction dataset MLflow
+        dataset = mlflow.data.from_pandas(
+            ds_df,
+            source=snapshot_uri,
+            name=dataset_name,
+        )
+
+        # Important pour l'UI Dataset
+        mlflow.log_input(dataset, context=context)
+
+        # On log aussi le snapshot comme artifact visible
+        mlflow.log_artifact(snapshot_path, artifact_path="dataset_snapshot")
+
+        # Petit résumé lisible
+        dataset_meta = {
+            "dataset_name": dataset_name,
+            "feast_feature_name": feast_feature_name,
+            "partition": partition,
+            "model_label": model_label,
+            "n_rows": int(len(ds_df)),
+            "n_cols": int(ds_df.shape[1]),
+            "columns": list(map(str, ds_df.columns)),
+            "snapshot_uri": snapshot_uri,
+            "context": context,
+        }
+        meta_path = os.path.join(snapshot_dir, f"{dataset_name}_meta.json")
+        _safe_write_json(dataset_meta, meta_path)
+        mlflow.log_artifact(meta_path, artifact_path="dataset_snapshot")
+
+        # Tags utiles
+        mlflow.set_tag("dataset_name", dataset_name)
+        mlflow.set_tag("dataset_source_kind", "feast_snapshot")
+        mlflow.set_tag("feast_feature_name", str(feast_feature_name))
+        mlflow.set_tag("dataset_snapshot_uri", snapshot_uri)
+
+        return True, None, dataset_name
+
+    except Exception as e:
+        return False, str(e), None
+
+
+def _log_model_entity_to_mlflow(model_obj, *, model_name, X_example=None):
+    signature = _infer_signature_safe(model_obj, X_example)
+    input_example = _input_example_safe(X_example)
+
+    if _HAS_MLFLOW_LIGHTGBM and _looks_like_lightgbm(model_obj):
+        try:
+            mlflow.lightgbm.log_model(
+                lgb_model=model_obj,
+                name=model_name,
+                signature=signature,
+                input_example=input_example,
+            )
+            return "lightgbm"
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_XGBOOST and _looks_like_xgboost(model_obj):
+        try:
+            mlflow.xgboost.log_model(
+                xgb_model=model_obj,
+                name=model_name,
+                signature=signature,
+                input_example=input_example,
+            )
+            return "xgboost"
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_STATSMODELS and _looks_like_statsmodels(model_obj):
+        try:
+            mlflow.statsmodels.log_model(
+                statsmodels_model=model_obj,
+                artifact_path=model_name,
+                signature=signature,
+                input_example=input_example,
+            )
+            return "statsmodels"
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_SKLEARN and _looks_like_sklearn(model_obj):
+        try:
+            mlflow.sklearn.log_model(
+                sk_model=model_obj,
+                name=model_name,
+                signature=signature,
+                input_example=input_example,
+            )
+            return "sklearn"
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_SKLEARN:
+        try:
+            mlflow.sklearn.log_model(
+                sk_model=model_obj,
+                name=model_name,
+                signature=signature,
+                input_example=input_example,
+            )
+            return "sklearn-fallback"
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_PYFUNC:
+        try:
+            mlflow.pyfunc.log_model(
+                artifact_path=model_name,
+                python_model=_GenericPyfuncWrapper(model_obj),
+                signature=signature,
+                input_example=input_example,
+            )
+            return "pyfunc"
+        except Exception:
+            return None
+
+    return None
+
+
+def _load_mlflow_logged_model(run_id, artifact_path):
+    uri = f"runs:/{run_id}/{artifact_path}"
+
+    if _HAS_MLFLOW_LIGHTGBM:
+        try:
+            return mlflow.lightgbm.load_model(uri)
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_XGBOOST:
+        try:
+            return mlflow.xgboost.load_model(uri)
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_STATSMODELS:
+        try:
+            return mlflow.statsmodels.load_model(uri)
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_SKLEARN:
+        try:
+            return mlflow.sklearn.load_model(uri)
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_PYFUNC:
+        try:
+            return mlflow.pyfunc.load_model(uri)
+        except Exception:
+            pass
+
+    return None
+
+
+# =========================================================
+# Figure logging
+# =========================================================
+def log_matplotlib_figure_to_mlflow(fig, artifact_file, dpi=200, close_after=False):
+    mlflow.log_figure(fig, artifact_file)
+    if close_after:
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+
+
+def save_and_log_matplotlib_figure(fig, artifact_dir, filename, dpi=200, close_after=False):
+    _ensure_dir(artifact_dir)
+    png_path = os.path.join(artifact_dir, filename)
+    fig.savefig(png_path, dpi=dpi, bbox_inches="tight")
+    mlflow.log_artifact(png_path, artifact_path="plots")
+
+    if close_after:
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+
+    return png_path
+
+
+# =========================================================
+# Export principal vers MLflow
+# =========================================================
+def log_experiment_runs_to_mlflow(
+    *,
+    score_df_exp,
+    leaderboard_exp,
+    bkt_score,
+    meta_models,
+    tracking_uri,
+    experiment_name,
+    feast_feature_name,
+    ts_features,
+    results_perm_mae_by_part=None,
+    results_perm_deviance_by_part=None,
+    results_shap_share_by_part=None,
+    fitted_models=None,
+    train_fit_dates=None,
+    X_by_partition=None,
+    features_by_partition=None,
+    extra_figures=None,
+    run_tags=None,
+    run_name_fn=None,
+    tmp_root="mlflow_tmp",
+    log_mlflow_dataset=True,
+    log_mlflow_model=True,
+    source_dataset_df=None,
+    source_dataset_name=None,     # gardé pour compatibilité
+    source_dataset_source=None,   # gardé pour compatibilité
+    target_col=None,
+    n_lags=None,
+    exog_cols=None,
+):
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment(experiment_name)
+
+    df_log = score_df_exp.copy()
+
+    required_cols = {"model_label", "partition", "mae"}
+    missing = required_cols - set(df_log.columns)
+    if missing:
+        raise ValueError(f"score_df_exp missing required columns: {missing}")
+
+    if "model_name" not in df_log.columns:
+        df_log["model_name"] = df_log["model_label"].astype(str)
+
+    df_log["model_label"] = df_log["model_label"].astype(str)
+    df_log["partition"] = df_log["partition"].astype(str)
+    df_log["model_name"] = df_log["model_name"].astype(str)
+
+    for _, row in df_log.iterrows():
+        model_label = str(row["model_label"])
+        partition = str(row["partition"])
+        model_name = str(row["model_name"])
+
+        run_name = str(run_name_fn(row)) if callable(run_name_fn) else f"{model_label} | {partition}"
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            with mlflow.start_run(run_name=run_name):
+                mlflow.set_tag("model_label", model_label)
+                mlflow.set_tag("partition", partition)
+                mlflow.set_tag("model_name", model_name)
+                mlflow.set_tag("run_name_custom", run_name)
+                mlflow.set_tag("feast_feature_name", str(feast_feature_name))
+
+                if run_tags:
+                    for k, v in run_tags.items():
+                        mlflow.set_tag(str(k), str(v))
+
+                mlflow.log_param("model_label", model_label)
+                mlflow.log_param("partition", partition)
+                mlflow.log_param("model_name", model_name)
+                mlflow.log_param("run_name", run_name)
+
+                if ts_features is not None:
+                    if isinstance(ts_features, (list, tuple)):
+                        mlflow.log_param("n_ts_features", len(ts_features))
+                        mlflow.log_param("ts_features", ", ".join(map(str, ts_features)))
+                    else:
+                        mlflow.log_param("ts_features", str(ts_features))
+
+                if target_col is not None:
+                    mlflow.log_param("target_col", str(target_col))
+
+                if n_lags is not None:
+                    try:
+                        mlflow.log_param("n_lags", int(n_lags))
+                    except Exception:
+                        mlflow.log_param("n_lags", str(n_lags))
+
+                if exog_cols is not None:
+                    try:
+                        mlflow.log_param("n_exog_cols", len(exog_cols))
+                    except Exception:
+                        pass
+                    try:
+                        mlflow.log_param("exog_cols", ", ".join(map(str, exog_cols)))
+                    except Exception:
+                        mlflow.log_param("exog_cols", str(exog_cols))
+
+                for col, val in row.items():
+                    if col in {"model_label", "partition", "model_name"}:
+                        continue
+                    if isinstance(val, (int, float, np.integer, np.floating)) and pd.notna(val):
+                        try:
+                            mlflow.log_metric(col, float(val))
+                        except Exception:
+                            pass
+
+                tmp_dir = Path(tmp_root) / model_label / partition
+                if tmp_dir.exists():
+                    shutil.rmtree(tmp_dir)
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+
+                row_df = pd.DataFrame([row])
+                row_csv = tmp_dir / f"score_row_{model_label}_{partition}.csv"
+                row_df.to_csv(row_csv, index=False)
+                mlflow.log_artifact(str(row_csv), artifact_path="score")
+
+                lb_part = _subset_partition(leaderboard_exp, partition)
+                if lb_part is not None:
+                    p = tmp_dir / f"leaderboard_{partition}.csv"
+                    lb_part.to_csv(p, index=False)
+                    mlflow.log_artifact(str(p), artifact_path="leaderboard")
+
+                if results_perm_mae_by_part is not None and partition in results_perm_mae_by_part:
+                    dfp = _coerce_explainability_obj(results_perm_mae_by_part[partition], model_label=model_label)
+                    if dfp is not None and len(dfp):
+                        p = tmp_dir / f"results_perm_mae_{model_label}_{partition}.csv"
+                        dfp.to_csv(p, index=False)
+                        mlflow.log_artifact(str(p), artifact_path="explainability")
+                        score_col = "perm_mae_ratio" if "perm_mae_ratio" in dfp.columns else dfp.columns[-1]
+                        top1 = _find_top1_feature(dfp, score_col)
+                        if top1 is not None:
+                            mlflow.set_tag("perm_mae_top1", top1)
+
+                if results_perm_deviance_by_part is not None and partition in results_perm_deviance_by_part:
+                    dfp = _coerce_explainability_obj(results_perm_deviance_by_part[partition], model_label=model_label)
+                    if dfp is not None and len(dfp):
+                        p = tmp_dir / f"results_perm_dev_{model_label}_{partition}.csv"
+                        dfp.to_csv(p, index=False)
+                        mlflow.log_artifact(str(p), artifact_path="explainability")
+                        score_col = "perm_deviance_ratio" if "perm_deviance_ratio" in dfp.columns else dfp.columns[-1]
+                        top1 = _find_top1_feature(dfp, score_col)
+                        if top1 is not None:
+                            mlflow.set_tag("perm_dev_top1", top1)
+
+                if results_shap_share_by_part is not None and partition in results_shap_share_by_part:
+                    dfp = _coerce_explainability_obj(results_shap_share_by_part[partition], model_label=model_label)
+                    if dfp is not None and len(dfp):
+                        p = tmp_dir / f"results_shap_share_{model_label}_{partition}.csv"
+                        dfp.to_csv(p, index=False)
+                        mlflow.log_artifact(str(p), artifact_path="explainability")
+                        score_col = "shap_share" if "shap_share" in dfp.columns else dfp.columns[-1]
+                        top1 = _find_top1_feature(dfp, score_col)
+                        if top1 is not None:
+                            mlflow.set_tag("shap_top1", top1)
+
+                bkt_part = None
+                if isinstance(bkt_score, dict):
+                    bkt_part = bkt_score.get((model_label, partition), None)
+                elif isinstance(bkt_score, pd.DataFrame):
+                    tmp = bkt_score.copy()
+                    if "model_label" in tmp.columns and "partition" in tmp.columns:
+                        m = (
+                            tmp["model_label"].astype(str).eq(model_label)
+                            & tmp["partition"].astype(str).eq(partition)
+                        )
+                        bkt_part = tmp.loc[m].copy()
+                    elif "model_label" in tmp.columns:
+                        m = tmp["model_label"].astype(str).eq(model_label)
+                        bkt_part = tmp.loc[m].copy()
+
+                if isinstance(bkt_part, pd.DataFrame) and len(bkt_part):
+                    bkt_part = _normalize_ds_in_df(bkt_part, ds_col="ds")
+                    p = tmp_dir / f"bkt_{model_label}_{partition}.parquet"
+                    bkt_part.to_parquet(p, index=False)
+                    mlflow.log_artifact(str(p), artifact_path="backtest")
+
+                meta_obj = None
+                if isinstance(meta_models, dict):
+                    meta_obj = meta_models.get((model_label, partition), meta_models.get(model_label, None))
+                    if meta_obj is None:
+                        meta_obj = meta_models.get("metas", {}).get(model_label, None)
+
+                if meta_obj is not None:
+                    p_json = tmp_dir / f"meta_{model_label}_{partition}.json"
+                    _safe_write_json(meta_obj, p_json)
+                    mlflow.log_artifact(str(p_json), artifact_path="meta")
+
+                    p_pkl = tmp_dir / f"meta_{model_label}_{partition}.pkl"
+                    _safe_write_pickle(meta_obj, p_pkl)
+                    mlflow.log_artifact(str(p_pkl), artifact_path="meta")
+
+                # =====================================================
+                # DATASET FEAST visible dans MLflow UI
+                # =====================================================
+                dataset_ok = False
+                dataset_err = None
+                dataset_name_logged = None
+
+                if log_mlflow_dataset and isinstance(source_dataset_df, pd.DataFrame):
+                    dataset_ok, dataset_err, dataset_name_logged = _log_feast_dataset_entity_to_mlflow(
+                        source_dataset_df,
+                        feast_feature_name=feast_feature_name,
+                        model_label=model_label,
+                        partition=partition,
+                        tmp_dir=str(tmp_dir),
+                        context="training",
+                        source_dataset_name=source_dataset_name,
+                    )
+
+                mlflow.set_tag("dataset_logged", str(bool(dataset_ok)).lower())
+                if dataset_name_logged is not None:
+                    mlflow.set_tag("dataset_name_logged", dataset_name_logged)
+
+                if dataset_err is not None:
+                    mlflow.set_tag("dataset_log_error", str(dataset_err)[:500])
+                    p = tmp_dir / "dataset_log_error.txt"
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(str(dataset_err))
+                    mlflow.log_artifact(str(p), artifact_path="logs")
+
+                Xp2 = None
+                if isinstance(X_by_partition, dict):
+                    Xp = X_by_partition.get((model_label, partition), None)
+                    if Xp is None:
+                        Xp = X_by_partition.get((model_label, "ALL"), None)
+                    if isinstance(Xp, pd.DataFrame):
+                        Xp2 = Xp.copy()
+                        if "ds" in Xp2.columns:
+                            Xp2["ds"] = pd.to_datetime(Xp2["ds"], errors="coerce")
+                        p = tmp_dir / f"X_{model_label}_{partition}.parquet"
+                        Xp2.to_parquet(p, index=False)
+                        mlflow.log_artifact(str(p), artifact_path="functional")
+
+                if isinstance(features_by_partition, dict):
+                    feats = features_by_partition.get((model_label, partition), None)
+                    if feats is None:
+                        feats = features_by_partition.get((model_label, "ALL"), None)
+                    if feats is not None:
+                        p = tmp_dir / f"features_{model_label}_{partition}.json"
+                        _safe_write_json(list(map(str, feats)), p)
+                        mlflow.log_artifact(str(p), artifact_path="functional")
+
+                model_obj = None
+                if isinstance(fitted_models, dict):
+                    model_obj = fitted_models.get((model_label, partition), None)
+                    if model_obj is None:
+                        model_obj = fitted_models.get((model_label, "ALL"), None)
+                    if model_obj is None:
+                        model_obj = fitted_models.get(model_label, None)
+
+                if model_obj is not None:
+                    saved_path = _serialize_model_candidate(
+                        model_obj=model_obj,
+                        base_dir=tmp_dir / "models",
+                        stem=f"model_{model_label}_{partition}",
+                    )
+                    if saved_path is not None:
+                        mlflow.log_artifact(str(saved_path), artifact_path="models")
+
+                    try:
+                        est = _unwrap_estimator_from_mlf(model_obj, preferred_key=model_label)
+                        saved_est = _serialize_model_candidate(
+                            model_obj=est,
+                            base_dir=tmp_dir / "models",
+                            stem=f"estimator_{model_label}_{partition}",
+                        )
+                        if saved_est is not None:
+                            mlflow.log_artifact(str(saved_est), artifact_path="models")
+
+                        if log_mlflow_model:
+                            X_example = Xp2 if isinstance(Xp2, pd.DataFrame) else source_dataset_df
+                            flavor_used = _log_model_entity_to_mlflow(
+                                est,
+                                model_name=f"model_entity_{model_label}_{partition}",
+                                X_example=X_example,
+                            )
+                            if flavor_used is not None:
+                                mlflow.set_tag("mlflow_model_flavor", flavor_used)
+                    except Exception as e:
+                        p = tmp_dir / "model_log_error.txt"
+                        with open(p, "w", encoding="utf-8") as f:
+                            f.write(str(e))
+                        mlflow.log_artifact(str(p), artifact_path="logs")
+
+                if isinstance(train_fit_dates, dict):
+                    tfd = train_fit_dates.get((model_label, partition), None)
+                    if tfd is None:
+                        tfd = train_fit_dates.get(model_label, None)
+                    if tfd is not None:
+                        p = tmp_dir / f"train_fit_dates_{model_label}_{partition}.json"
+                        _safe_write_json(tfd, p)
+                        mlflow.log_artifact(str(p), artifact_path="meta")
+
+                if isinstance(extra_figures, dict):
+                    figs = extra_figures.get((model_label, partition), None)
+                    if isinstance(figs, dict):
+                        for fname, fig in figs.items():
+                            try:
+                                mlflow.log_figure(fig, f"plots/{fname}")
+                            except Exception:
+                                local_fig = tmp_dir / fname
+                                fig.savefig(local_fig, dpi=200, bbox_inches="tight")
+                                mlflow.log_artifact(str(local_fig), artifact_path="plots")
+
+                out_txt = stdout_buf.getvalue().strip()
+                err_txt = stderr_buf.getvalue().strip()
+
+                if out_txt:
+                    p = tmp_dir / "stdout.txt"
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(out_txt)
+                    mlflow.log_artifact(str(p), artifact_path="logs")
+
+                if err_txt:
+                    p = tmp_dir / "stderr.txt"
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(err_txt)
+                    mlflow.log_artifact(str(p), artifact_path="logs")
+
+
+# =========================================================
+# Import MLflow complet
+# =========================================================
+def import_mlflow_experiment(
+    *,
+    tracking_uri,
+    experiment_name,
+    dl_dir="mlflow_import",
+    prefer_latest_only=True,
+    try_load_logged_mlflow_models=True,
+):
+    _ensure_dir(dl_dir)
+
+    mlflow.set_tracking_uri(tracking_uri)
+    client = MlflowClient()
+
+    exp = mlflow.get_experiment_by_name(experiment_name)
+    if exp is None:
+        raise ValueError(f"Experiment introuvable: {experiment_name}")
+
+    runs = mlflow.search_runs([exp.experiment_id], output_format="pandas")
+    if runs.empty:
+        raise ValueError("Aucun run trouvé.")
+
+    runs = runs.sort_values("start_time", ascending=False).reset_index(drop=True)
+
+    def _get_col(df, cands):
+        for c in cands:
+            if c in df.columns:
+                return c
+        return None
+
+    col_model = _get_col(runs, ["params.model_label", "tags.model_label"])
+    col_part = _get_col(runs, ["params.partition", "tags.partition"])
+    col_name = _get_col(runs, ["params.model_name", "tags.model_name"])
+
+    if col_model is None or col_part is None:
+        raise ValueError("Impossible de trouver model_label / partition dans les runs MLflow.")
+
+    runs["model_label"] = runs[col_model].astype(str)
+    runs["partition"] = runs[col_part].astype(str)
+    runs["model_name"] = runs[col_name].astype(str) if col_name is not None else runs["model_label"].astype(str)
+
+    if prefer_latest_only:
+        runs = (
+            runs.sort_values("start_time", ascending=False)
+            .drop_duplicates(subset=["model_label", "partition"], keep="first")
+            .reset_index(drop=True)
+        )
+
+    score_rows = []
+    leaderboard_rows = []
+
+    results_perm_mae_by_part = {}
+    results_perm_deviance_by_part = {}
+    results_shap_share_by_part = {}
+
+    bkt_by_run = {}
+    X_by_run = {}
+    features_by_run = {}
+    models_mlflow = {}
+    meta_by_run = {}
+    train_fit_dates_by_run = {}
+
+    def _safe_read_csv(path):
+        try:
+            return pd.read_csv(path)
+        except Exception:
+            return None
+
+    def _safe_read_parquet(path):
+        try:
+            return pd.read_parquet(path)
+        except Exception:
+            return None
+
+    def _safe_read_json(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def _safe_load_model(path):
+        try:
+            if str(path).lower().endswith(".joblib"):
+                return joblib.load(path)
+            with open(path, "rb") as f:
+                return pickle.load(f)
+        except Exception:
+            return None
+
+    def _append_expl_store(store, partition, df, model_label):
+        if df is None or len(df) == 0:
+            return
+        tmp = df.copy()
+        if "model_label" not in tmp.columns:
+            tmp["model_label"] = str(model_label)
+        store.setdefault(partition, [])
+        store[partition].append(tmp)
+
+    for _, rr in runs.iterrows():
+        run_id = rr["run_id"]
+        model_label = str(rr["model_label"])
+        partition = str(rr["partition"])
+        key = (model_label, partition)
+
+        run_dir = os.path.join(dl_dir, model_label, partition)
+        _ensure_dir(run_dir)
+
+        try:
+            artifacts = _list_artifacts_recursive(client, run_id, path="")
+        except Exception:
+            artifacts = []
+
+        for ap in artifacts:
+            apl = ap.lower()
+
+            if "score/" in apl and apl.endswith(".csv"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                df = _safe_read_csv(local)
+                if df is not None and len(df):
+                    if "model_label" not in df.columns:
+                        df["model_label"] = model_label
+                    if "partition" not in df.columns:
+                        df["partition"] = partition
+                    score_rows.append(df)
+
+            elif "leaderboard/" in apl and apl.endswith(".csv"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                df = _safe_read_csv(local)
+                if df is not None and len(df):
+                    if "partition" not in df.columns:
+                        df["partition"] = partition
+                    leaderboard_rows.append(df)
+
+            elif "explainability/" in apl and apl.endswith(".csv"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                df = _safe_read_csv(local)
+                if df is None or len(df) == 0:
+                    continue
+
+                if "perm_mae" in apl:
+                    _append_expl_store(results_perm_mae_by_part, partition, df, model_label)
+                elif "perm_dev" in apl or "perm_deviance" in apl:
+                    _append_expl_store(results_perm_deviance_by_part, partition, df, model_label)
+                elif "shap" in apl:
+                    _append_expl_store(results_shap_share_by_part, partition, df, model_label)
+
+            elif "backtest/" in apl and apl.endswith(".parquet"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                df = _safe_read_parquet(local)
+                if df is not None:
+                    bkt_by_run[key] = df
+
+            elif ("functional/" in apl or "/x_" in apl or apl.startswith("x_")) and apl.endswith(".parquet"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                df = _safe_read_parquet(local)
+                if df is not None:
+                    X_by_run[key] = df
+
+            elif ("functional/" in apl or "features_" in apl) and apl.endswith(".json"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                obj = _safe_read_json(local)
+                if obj is not None:
+                    features_by_run[key] = obj
+
+            elif "meta/" in apl and "train_fit_dates_" in apl and apl.endswith(".json"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                obj = _safe_read_json(local)
+                if obj is not None:
+                    train_fit_dates_by_run[key] = obj
+
+            elif "meta/" in apl and "meta_" in apl and apl.endswith(".json"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                obj = _safe_read_json(local)
+                if obj is not None:
+                    meta_by_run[key] = obj
+
+        if try_load_logged_mlflow_models:
+            candidate_model_entities = [
+                f"model_entity_{model_label}_{partition}",
+                "model",
+            ]
+            for art in candidate_model_entities:
+                loaded = _load_mlflow_logged_model(run_id, art)
+                if loaded is not None:
+                    models_mlflow[key] = loaded
+                    break
+
+        if key not in models_mlflow:
+            model_candidates = []
+            for ap in artifacts:
+                apl = ap.lower()
+                if "models/" in apl and (apl.endswith(".joblib") or apl.endswith(".pkl") or apl.endswith(".pickle")):
+                    model_candidates.append(ap)
+
+            def _rank_model_path(x):
+                xl = x.lower()
+                score = 100
+                if f"estimator_{model_label.lower()}_{partition.lower()}.joblib" in xl:
+                    score = 0
+                elif f"model_{model_label.lower()}_{partition.lower()}.joblib" in xl:
+                    score = 1
+                elif xl.endswith(".joblib"):
+                    score = 2
+                elif xl.endswith(".pkl") or xl.endswith(".pickle"):
+                    score = 3
+                return score, len(x)
+
+            model_candidates = sorted(model_candidates, key=_rank_model_path)
+
+            for ap in model_candidates:
+                local = _download_artifact(client, run_id, ap, run_dir)
+                loaded_model = _safe_load_model(local)
+                if loaded_model is not None:
+                    models_mlflow[key] = loaded_model
+                    break
+
+    score_df_exp = (
+        pd.concat(score_rows, axis=0, ignore_index=True).drop_duplicates().reset_index(drop=True)
+        if len(score_rows) else None
+    )
+
+    leaderboard_exp = (
+        pd.concat(leaderboard_rows, axis=0, ignore_index=True).drop_duplicates().reset_index(drop=True)
+        if len(leaderboard_rows) else None
+    )
+
+    for part, lst in list(results_perm_mae_by_part.items()):
+        results_perm_mae_by_part[part] = (
+            pd.concat(lst, axis=0, ignore_index=True).drop_duplicates().reset_index(drop=True)
+            if len(lst) else pd.DataFrame()
+        )
+
+    for part, lst in list(results_perm_deviance_by_part.items()):
+        results_perm_deviance_by_part[part] = (
+            pd.concat(lst, axis=0, ignore_index=True).drop_duplicates().reset_index(drop=True)
+            if len(lst) else pd.DataFrame()
+        )
+
+    for part, lst in list(results_shap_share_by_part.items()):
+        results_shap_share_by_part[part] = (
+            pd.concat(lst, axis=0, ignore_index=True).drop_duplicates().reset_index(drop=True)
+            if len(lst) else pd.DataFrame()
+        )
+
+    return {
+        "runs": runs,
+        "score_df_exp": score_df_exp,
+        "leaderboard_exp": leaderboard_exp,
+        "results_perm_mae_by_part": results_perm_mae_by_part,
+        "results_perm_deviance_by_part": results_perm_deviance_by_part,
+        "results_shap_share_by_part": results_shap_share_by_part,
+        "bkt_by_run": bkt_by_run,
+        "X_by_run": X_by_run,
+        "features_by_run": features_by_run,
+        "models_mlflow": models_mlflow,
+        "meta_by_run": meta_by_run,
+        "train_fit_dates_by_run": train_fit_dates_by_run,
+    }
+
+
+def build_models_and_X_for_functional_plots(
+    *,
+    models_mlflow,
+    X_by_run,
+    features_by_run=None,
+    preferred_partition="ALL",
+    labels_map=None,
+):
+    if labels_map is None:
+        labels_map = {}
+
+    all_keys = sorted(set(models_mlflow.keys()) | set(X_by_run.keys()))
+    all_model_labels = sorted(set(k[0] for k in all_keys))
+
+    models_dict = {}
+    X_dict_out = {}
+    features_dict = {}
+
+    for model_label in all_model_labels:
+        chosen_key = None
+
+        if (model_label, preferred_partition) in models_mlflow and (model_label, preferred_partition) in X_by_run:
+            chosen_key = (model_label, preferred_partition)
+        else:
+            common = [k for k in all_keys if k[0] == model_label and k in models_mlflow and k in X_by_run]
+            if len(common):
+                common = sorted(common, key=lambda x: (x[1] != preferred_partition, x[1]))
+                chosen_key = common[0]
+
+        if chosen_key is None:
+            continue
+
+        display_name = labels_map.get(model_label, model_label)
+        model_obj = models_mlflow[chosen_key]
+        prep = None
+
+        models_dict[display_name] = (model_obj, prep)
+        X_dict_out[display_name] = X_by_run[chosen_key]
+
+        if isinstance(features_by_run, dict) and chosen_key in features_by_run:
+            features_dict[display_name] = features_by_run[chosen_key]
+
+    return models_dict, X_dict_out, features_dict
+import io
+import json
+import pickle
+import joblib
+import shutil
+import logging
+import warnings
+from pathlib import Path
+from contextlib import redirect_stdout, redirect_stderr
+
+import numpy as np
+import pandas as pd
+import mlflow
+import mlflow.data
+from mlflow.tracking import MlflowClient
+
+warnings.filterwarnings("ignore")
+logging.getLogger("mlflow").setLevel(logging.ERROR)
+
+# Optional flavors
+try:
+    import mlflow.sklearn
+    _HAS_MLFLOW_SKLEARN = True
+except Exception:
+    _HAS_MLFLOW_SKLEARN = False
+
+try:
+    import mlflow.lightgbm
+    _HAS_MLFLOW_LIGHTGBM = True
+except Exception:
+    _HAS_MLFLOW_LIGHTGBM = False
+
+try:
+    import mlflow.xgboost
+    _HAS_MLFLOW_XGBOOST = True
+except Exception:
+    _HAS_MLFLOW_XGBOOST = False
+
+try:
+    import mlflow.statsmodels
+    _HAS_MLFLOW_STATSMODELS = True
+except Exception:
+    _HAS_MLFLOW_STATSMODELS = False
+
+try:
+    import mlflow.pyfunc
+    _HAS_MLFLOW_PYFUNC = True
+except Exception:
+    _HAS_MLFLOW_PYFUNC = False
+
+
+# =========================================================
+# Helpers généraux
+# =========================================================
+def _ensure_dir(path):
+    Path(path).mkdir(parents=True, exist_ok=True)
+
+
+def _json_default(obj):
+    if isinstance(obj, (np.integer,)):
+        return int(obj)
+    if isinstance(obj, (np.floating,)):
+        return float(obj)
+    if isinstance(obj, (np.ndarray,)):
+        return obj.tolist()
+    if isinstance(obj, (pd.Timestamp,)):
+        return obj.isoformat()
+    if isinstance(obj, (pd.Period,)):
+        return str(obj)
+    return str(obj)
+
+
+def _safe_write_json(obj, path):
+    _ensure_dir(Path(path).parent)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=2, default=_json_default)
+
+
+def _safe_write_pickle(obj, path):
+    _ensure_dir(Path(path).parent)
+    with open(path, "wb") as f:
+        pickle.dump(obj, f)
+
+
+def _normalize_ds_in_df(df, ds_col="ds"):
+    if df is None or not isinstance(df, pd.DataFrame):
+        return df
+    out = df.copy()
+    if ds_col in out.columns:
+        out[ds_col] = pd.to_datetime(out[ds_col], errors="coerce")
+        out[ds_col] = out[ds_col].dt.to_period("M").dt.to_timestamp(how="start")
+    return out
+
+
+def _subset_partition(df, partition):
+    if df is None or not isinstance(df, pd.DataFrame):
+        return None
+    if "partition" not in df.columns:
+        return None
+    out = df[df["partition"].astype(str) == str(partition)].copy()
+    return out if len(out) else None
+
+
+def _find_top1_feature(df_part, score_col):
+    if df_part is None or len(df_part) == 0 or score_col not in df_part.columns:
+        return None
+    tmp = df_part.copy().sort_values(score_col, ascending=False)
+    row = tmp.iloc[0]
+    feat_col = "feature" if "feature" in tmp.columns else None
+    if feat_col is None:
+        return None
+    return str(row[feat_col])
+
+
+def _list_artifacts_recursive(client, run_id, path=""):
+    out = []
+    items = client.list_artifacts(run_id, path)
+    for item in items:
+        if item.is_dir:
+            out.extend(_list_artifacts_recursive(client, run_id, item.path))
+        else:
+            out.append(item.path)
+    return out
+
+
+def _download_artifact(client, run_id, artifact_path, dst_dir):
+    _ensure_dir(dst_dir)
+    return client.download_artifacts(run_id, artifact_path, dst_dir)
+
+
+def _unwrap_estimator_from_mlf(maybe_mlf, preferred_key=None):
+    base = maybe_mlf
+
+    if hasattr(base, "_base"):
+        try:
+            base = base._base
+        except Exception:
+            pass
+
+    if hasattr(base, "models_") and isinstance(getattr(base, "models_"), dict):
+        d = base.models_
+        if preferred_key is not None and preferred_key in d:
+            return _unwrap_estimator_from_mlf(d[preferred_key], preferred_key=None)
+        if len(d):
+            return _unwrap_estimator_from_mlf(next(iter(d.values())), preferred_key=None)
+
+    for attr in ["model", "estimator", "_model", "_estimator"]:
+        if hasattr(base, attr):
+            try:
+                inner = getattr(base, attr)
+                if inner is not None and inner is not base:
+                    return _unwrap_estimator_from_mlf(inner, preferred_key=None)
+            except Exception:
+                pass
+
+    return base
+
+
+def _serialize_model_candidate(model_obj, base_dir, stem):
+    _ensure_dir(base_dir)
+
+    joblib_path = os.path.join(base_dir, f"{stem}.joblib")
+    pkl_path = os.path.join(base_dir, f"{stem}.pkl")
+
+    try:
+        joblib.dump(model_obj, joblib_path)
+        return joblib_path
+    except Exception:
+        pass
+
+    try:
+        with open(pkl_path, "wb") as f:
+            pickle.dump(model_obj, f)
+        return pkl_path
+    except Exception:
+        pass
+
+    return None
+
+
+def _coerce_explainability_obj(obj, model_label=None):
+    if obj is None:
+        return None
+
+    if isinstance(obj, pd.DataFrame):
+        df = obj.copy()
+
+    elif isinstance(obj, dict):
+        if model_label is not None and model_label in obj and isinstance(obj[model_label], pd.DataFrame):
+            df = obj[model_label].copy()
+        elif len(obj) > 0 and all(isinstance(v, pd.DataFrame) for v in obj.values()):
+            parts = []
+            for k, v in obj.items():
+                tmp = v.copy()
+                if "model_label" not in tmp.columns:
+                    tmp["model_label"] = str(k)
+                parts.append(tmp)
+            df = pd.concat(parts, axis=0, ignore_index=True)
+        else:
+            df = pd.DataFrame([obj])
+
+    elif isinstance(obj, (list, tuple)):
+        parts = []
+        for x in obj:
+            if isinstance(x, pd.DataFrame):
+                parts.append(x.copy())
+            elif isinstance(x, dict):
+                parts.append(pd.DataFrame([x]))
+        df = pd.concat(parts, axis=0, ignore_index=True) if len(parts) else None
+    else:
+        return None
+
+    if df is None or len(df) == 0:
+        return None
+
+    if model_label is not None and "model_label" in df.columns:
+        df = df[df["model_label"].astype(str) == str(model_label)].copy()
+
+    return df if len(df) else None
+
+
+# =========================================================
+# Helpers MLflow dataset / model
+# =========================================================
+def _infer_signature_safe(model_obj, X_example):
+    try:
+        from mlflow.models import infer_signature
+        if X_example is None or not isinstance(X_example, pd.DataFrame) or len(X_example) == 0:
+            return None
+        X_small = X_example.head(min(50, len(X_example))).copy()
+        y_pred = model_obj.predict(X_small)
+        return infer_signature(X_small, y_pred)
+    except Exception:
+        return None
+
+
+def _input_example_safe(X_example):
+    try:
+        if X_example is None or not isinstance(X_example, pd.DataFrame) or len(X_example) == 0:
+            return None
+        return X_example.head(min(5, len(X_example))).copy()
+    except Exception:
+        return None
+
+
+def _looks_like_lightgbm(model_obj):
+    name = type(model_obj).__name__.lower()
+    mod = getattr(type(model_obj), "__module__", "").lower()
+    return ("lightgbm" in mod) or ("lgbm" in name)
+
+
+def _looks_like_xgboost(model_obj):
+    name = type(model_obj).__name__.lower()
+    mod = getattr(type(model_obj), "__module__", "").lower()
+    return ("xgboost" in mod) or ("xgb" in name)
+
+
+def _looks_like_statsmodels(model_obj):
+    mod = getattr(type(model_obj), "__module__", "").lower()
+    return "statsmodels" in mod
+
+
+def _looks_like_sklearn(model_obj):
+    mod = getattr(type(model_obj), "__module__", "").lower()
+    return ("sklearn" in mod) or ("scikit_learn" in mod)
+
+
+class _GenericPyfuncWrapper(mlflow.pyfunc.PythonModel if _HAS_MLFLOW_PYFUNC else object):
+    def __init__(self, model):
+        self.model = model
+
+    def predict(self, context, model_input):
+        if isinstance(model_input, pd.DataFrame):
+            return self.model.predict(model_input)
+        return self.model.predict(pd.DataFrame(model_input))
+
+
+def _build_feast_dataset_name(feast_feature_name, model_label, partition):
+    return f"feast_{feast_feature_name}_{model_label}_{partition}"
+
+
+def _save_dataset_snapshot_for_mlflow(df_dataset, snapshot_dir, snapshot_name):
+    """
+    Sauvegarde une copie locale parquet du dataset pour fournir à MLflow
+    une source concrète et stable, plus robuste pour l'affichage UI.
+    """
+    _ensure_dir(snapshot_dir)
+
+    df_to_save = df_dataset.copy()
+    if "ds" in df_to_save.columns:
+        df_to_save["ds"] = pd.to_datetime(df_to_save["ds"], errors="coerce")
+
+    snapshot_path = os.path.join(snapshot_dir, f"{snapshot_name}.parquet")
+    df_to_save.to_parquet(snapshot_path, index=False)
+
+    # URI absolu locale
+    snapshot_uri = Path(snapshot_path).resolve().as_uri()
+    return snapshot_path, snapshot_uri
+
+
+def _log_feast_dataset_entity_to_mlflow(
+    df_dataset,
+    *,
+    feast_feature_name,
+    model_label,
+    partition,
+    tmp_dir,
+    context="training",
+    source_dataset_name=None,
+):
+    """
+    Version robuste pour FEAST:
+    - snapshot parquet local
+    - source URI concrète
+    - name explicite
+    - log_input(dataset)
+    - log_artifact(snapshot)
+    """
+    try:
+        if df_dataset is None or not isinstance(df_dataset, pd.DataFrame) or len(df_dataset) == 0:
+            return False, "Empty or invalid source_dataset_df", None
+
+        ds_df = df_dataset.copy()
+
+        # Normalisation légère
+        if "ds" in ds_df.columns:
+            ds_df["ds"] = pd.to_datetime(ds_df["ds"], errors="coerce")
+
+        dataset_name = (
+            str(source_dataset_name)
+            if source_dataset_name is not None and str(source_dataset_name).strip() != ""
+            else _build_feast_dataset_name(feast_feature_name, model_label, partition)
+        )
+
+        snapshot_dir = os.path.join(tmp_dir, "dataset_snapshot")
+        snapshot_path, snapshot_uri = _save_dataset_snapshot_for_mlflow(
+            ds_df,
+            snapshot_dir=snapshot_dir,
+            snapshot_name=dataset_name,
+        )
+
+        # Construction dataset MLflow
+        dataset = mlflow.data.from_pandas(
+            ds_df,
+            source=snapshot_uri,
+            name=dataset_name,
+        )
+
+        # Important pour l'UI Dataset
+        mlflow.log_input(dataset, context=context)
+
+        # On log aussi le snapshot comme artifact visible
+        mlflow.log_artifact(snapshot_path, artifact_path="dataset_snapshot")
+
+        # Petit résumé lisible
+        dataset_meta = {
+            "dataset_name": dataset_name,
+            "feast_feature_name": feast_feature_name,
+            "partition": partition,
+            "model_label": model_label,
+            "n_rows": int(len(ds_df)),
+            "n_cols": int(ds_df.shape[1]),
+            "columns": list(map(str, ds_df.columns)),
+            "snapshot_uri": snapshot_uri,
+            "context": context,
+        }
+        meta_path = os.path.join(snapshot_dir, f"{dataset_name}_meta.json")
+        _safe_write_json(dataset_meta, meta_path)
+        mlflow.log_artifact(meta_path, artifact_path="dataset_snapshot")
+
+        # Tags utiles
+        mlflow.set_tag("dataset_name", dataset_name)
+        mlflow.set_tag("dataset_source_kind", "feast_snapshot")
+        mlflow.set_tag("feast_feature_name", str(feast_feature_name))
+        mlflow.set_tag("dataset_snapshot_uri", snapshot_uri)
+
+        return True, None, dataset_name
+
+    except Exception as e:
+        return False, str(e), None
+
+
+def _log_model_entity_to_mlflow(model_obj, *, model_name, X_example=None):
+    signature = _infer_signature_safe(model_obj, X_example)
+    input_example = _input_example_safe(X_example)
+
+    if _HAS_MLFLOW_LIGHTGBM and _looks_like_lightgbm(model_obj):
+        try:
+            mlflow.lightgbm.log_model(
+                lgb_model=model_obj,
+                name=model_name,
+                signature=signature,
+                input_example=input_example,
+            )
+            return "lightgbm"
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_XGBOOST and _looks_like_xgboost(model_obj):
+        try:
+            mlflow.xgboost.log_model(
+                xgb_model=model_obj,
+                name=model_name,
+                signature=signature,
+                input_example=input_example,
+            )
+            return "xgboost"
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_STATSMODELS and _looks_like_statsmodels(model_obj):
+        try:
+            mlflow.statsmodels.log_model(
+                statsmodels_model=model_obj,
+                artifact_path=model_name,
+                signature=signature,
+                input_example=input_example,
+            )
+            return "statsmodels"
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_SKLEARN and _looks_like_sklearn(model_obj):
+        try:
+            mlflow.sklearn.log_model(
+                sk_model=model_obj,
+                name=model_name,
+                signature=signature,
+                input_example=input_example,
+            )
+            return "sklearn"
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_SKLEARN:
+        try:
+            mlflow.sklearn.log_model(
+                sk_model=model_obj,
+                name=model_name,
+                signature=signature,
+                input_example=input_example,
+            )
+            return "sklearn-fallback"
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_PYFUNC:
+        try:
+            mlflow.pyfunc.log_model(
+                artifact_path=model_name,
+                python_model=_GenericPyfuncWrapper(model_obj),
+                signature=signature,
+                input_example=input_example,
+            )
+            return "pyfunc"
+        except Exception:
+            return None
+
+    return None
+
+
+def _load_mlflow_logged_model(run_id, artifact_path):
+    uri = f"runs:/{run_id}/{artifact_path}"
+
+    if _HAS_MLFLOW_LIGHTGBM:
+        try:
+            return mlflow.lightgbm.load_model(uri)
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_XGBOOST:
+        try:
+            return mlflow.xgboost.load_model(uri)
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_STATSMODELS:
+        try:
+            return mlflow.statsmodels.load_model(uri)
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_SKLEARN:
+        try:
+            return mlflow.sklearn.load_model(uri)
+        except Exception:
+            pass
+
+    if _HAS_MLFLOW_PYFUNC:
+        try:
+            return mlflow.pyfunc.load_model(uri)
+        except Exception:
+            pass
+
+    return None
+
+
+# =========================================================
+# Figure logging
+# =========================================================
+def log_matplotlib_figure_to_mlflow(fig, artifact_file, dpi=200, close_after=False):
+    mlflow.log_figure(fig, artifact_file)
+    if close_after:
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+
+
+def save_and_log_matplotlib_figure(fig, artifact_dir, filename, dpi=200, close_after=False):
+    _ensure_dir(artifact_dir)
+    png_path = os.path.join(artifact_dir, filename)
+    fig.savefig(png_path, dpi=dpi, bbox_inches="tight")
+    mlflow.log_artifact(png_path, artifact_path="plots")
+
+    if close_after:
+        import matplotlib.pyplot as plt
+        plt.close(fig)
+
+    return png_path
+
+
+# =========================================================
+# Export principal vers MLflow
+# =========================================================
+def log_experiment_runs_to_mlflow(
+    *,
+    score_df_exp,
+    leaderboard_exp,
+    bkt_score,
+    meta_models,
+    tracking_uri,
+    experiment_name,
+    feast_feature_name,
+    ts_features,
+    results_perm_mae_by_part=None,
+    results_perm_deviance_by_part=None,
+    results_shap_share_by_part=None,
+    fitted_models=None,
+    train_fit_dates=None,
+    X_by_partition=None,
+    features_by_partition=None,
+    extra_figures=None,
+    run_tags=None,
+    run_name_fn=None,
+    tmp_root="mlflow_tmp",
+    log_mlflow_dataset=True,
+    log_mlflow_model=True,
+    source_dataset_df=None,
+    source_dataset_name=None,     # gardé pour compatibilité
+    source_dataset_source=None,   # gardé pour compatibilité
+    target_col=None,
+    n_lags=None,
+    exog_cols=None,
+):
+    mlflow.set_tracking_uri(tracking_uri)
+    mlflow.set_experiment(experiment_name)
+
+    df_log = score_df_exp.copy()
+
+    required_cols = {"model_label", "partition", "mae"}
+    missing = required_cols - set(df_log.columns)
+    if missing:
+        raise ValueError(f"score_df_exp missing required columns: {missing}")
+
+    if "model_name" not in df_log.columns:
+        df_log["model_name"] = df_log["model_label"].astype(str)
+
+    df_log["model_label"] = df_log["model_label"].astype(str)
+    df_log["partition"] = df_log["partition"].astype(str)
+    df_log["model_name"] = df_log["model_name"].astype(str)
+
+    for _, row in df_log.iterrows():
+        model_label = str(row["model_label"])
+        partition = str(row["partition"])
+        model_name = str(row["model_name"])
+
+        run_name = str(run_name_fn(row)) if callable(run_name_fn) else f"{model_label} | {partition}"
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+
+        with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+            with mlflow.start_run(run_name=run_name):
+                mlflow.set_tag("model_label", model_label)
+                mlflow.set_tag("partition", partition)
+                mlflow.set_tag("model_name", model_name)
+                mlflow.set_tag("run_name_custom", run_name)
+                mlflow.set_tag("feast_feature_name", str(feast_feature_name))
+
+                if run_tags:
+                    for k, v in run_tags.items():
+                        mlflow.set_tag(str(k), str(v))
+
+                mlflow.log_param("model_label", model_label)
+                mlflow.log_param("partition", partition)
+                mlflow.log_param("model_name", model_name)
+                mlflow.log_param("run_name", run_name)
+
+                if ts_features is not None:
+                    if isinstance(ts_features, (list, tuple)):
+                        mlflow.log_param("n_ts_features", len(ts_features))
+                        mlflow.log_param("ts_features", ", ".join(map(str, ts_features)))
+                    else:
+                        mlflow.log_param("ts_features", str(ts_features))
+
+                if target_col is not None:
+                    mlflow.log_param("target_col", str(target_col))
+
+                if n_lags is not None:
+                    try:
+                        mlflow.log_param("n_lags", int(n_lags))
+                    except Exception:
+                        mlflow.log_param("n_lags", str(n_lags))
+
+                if exog_cols is not None:
+                    try:
+                        mlflow.log_param("n_exog_cols", len(exog_cols))
+                    except Exception:
+                        pass
+                    try:
+                        mlflow.log_param("exog_cols", ", ".join(map(str, exog_cols)))
+                    except Exception:
+                        mlflow.log_param("exog_cols", str(exog_cols))
+
+                for col, val in row.items():
+                    if col in {"model_label", "partition", "model_name"}:
+                        continue
+                    if isinstance(val, (int, float, np.integer, np.floating)) and pd.notna(val):
+                        try:
+                            mlflow.log_metric(col, float(val))
+                        except Exception:
+                            pass
+
+                tmp_dir = Path(tmp_root) / model_label / partition
+                if tmp_dir.exists():
+                    shutil.rmtree(tmp_dir)
+                tmp_dir.mkdir(parents=True, exist_ok=True)
+
+                row_df = pd.DataFrame([row])
+                row_csv = tmp_dir / f"score_row_{model_label}_{partition}.csv"
+                row_df.to_csv(row_csv, index=False)
+                mlflow.log_artifact(str(row_csv), artifact_path="score")
+
+                lb_part = _subset_partition(leaderboard_exp, partition)
+                if lb_part is not None:
+                    p = tmp_dir / f"leaderboard_{partition}.csv"
+                    lb_part.to_csv(p, index=False)
+                    mlflow.log_artifact(str(p), artifact_path="leaderboard")
+
+                if results_perm_mae_by_part is not None and partition in results_perm_mae_by_part:
+                    dfp = _coerce_explainability_obj(results_perm_mae_by_part[partition], model_label=model_label)
+                    if dfp is not None and len(dfp):
+                        p = tmp_dir / f"results_perm_mae_{model_label}_{partition}.csv"
+                        dfp.to_csv(p, index=False)
+                        mlflow.log_artifact(str(p), artifact_path="explainability")
+                        score_col = "perm_mae_ratio" if "perm_mae_ratio" in dfp.columns else dfp.columns[-1]
+                        top1 = _find_top1_feature(dfp, score_col)
+                        if top1 is not None:
+                            mlflow.set_tag("perm_mae_top1", top1)
+
+                if results_perm_deviance_by_part is not None and partition in results_perm_deviance_by_part:
+                    dfp = _coerce_explainability_obj(results_perm_deviance_by_part[partition], model_label=model_label)
+                    if dfp is not None and len(dfp):
+                        p = tmp_dir / f"results_perm_dev_{model_label}_{partition}.csv"
+                        dfp.to_csv(p, index=False)
+                        mlflow.log_artifact(str(p), artifact_path="explainability")
+                        score_col = "perm_deviance_ratio" if "perm_deviance_ratio" in dfp.columns else dfp.columns[-1]
+                        top1 = _find_top1_feature(dfp, score_col)
+                        if top1 is not None:
+                            mlflow.set_tag("perm_dev_top1", top1)
+
+                if results_shap_share_by_part is not None and partition in results_shap_share_by_part:
+                    dfp = _coerce_explainability_obj(results_shap_share_by_part[partition], model_label=model_label)
+                    if dfp is not None and len(dfp):
+                        p = tmp_dir / f"results_shap_share_{model_label}_{partition}.csv"
+                        dfp.to_csv(p, index=False)
+                        mlflow.log_artifact(str(p), artifact_path="explainability")
+                        score_col = "shap_share" if "shap_share" in dfp.columns else dfp.columns[-1]
+                        top1 = _find_top1_feature(dfp, score_col)
+                        if top1 is not None:
+                            mlflow.set_tag("shap_top1", top1)
+
+                bkt_part = None
+                if isinstance(bkt_score, dict):
+                    bkt_part = bkt_score.get((model_label, partition), None)
+                elif isinstance(bkt_score, pd.DataFrame):
+                    tmp = bkt_score.copy()
+                    if "model_label" in tmp.columns and "partition" in tmp.columns:
+                        m = (
+                            tmp["model_label"].astype(str).eq(model_label)
+                            & tmp["partition"].astype(str).eq(partition)
+                        )
+                        bkt_part = tmp.loc[m].copy()
+                    elif "model_label" in tmp.columns:
+                        m = tmp["model_label"].astype(str).eq(model_label)
+                        bkt_part = tmp.loc[m].copy()
+
+                if isinstance(bkt_part, pd.DataFrame) and len(bkt_part):
+                    bkt_part = _normalize_ds_in_df(bkt_part, ds_col="ds")
+                    p = tmp_dir / f"bkt_{model_label}_{partition}.parquet"
+                    bkt_part.to_parquet(p, index=False)
+                    mlflow.log_artifact(str(p), artifact_path="backtest")
+
+                meta_obj = None
+                if isinstance(meta_models, dict):
+                    meta_obj = meta_models.get((model_label, partition), meta_models.get(model_label, None))
+                    if meta_obj is None:
+                        meta_obj = meta_models.get("metas", {}).get(model_label, None)
+
+                if meta_obj is not None:
+                    p_json = tmp_dir / f"meta_{model_label}_{partition}.json"
+                    _safe_write_json(meta_obj, p_json)
+                    mlflow.log_artifact(str(p_json), artifact_path="meta")
+
+                    p_pkl = tmp_dir / f"meta_{model_label}_{partition}.pkl"
+                    _safe_write_pickle(meta_obj, p_pkl)
+                    mlflow.log_artifact(str(p_pkl), artifact_path="meta")
+
+                # =====================================================
+                # DATASET FEAST visible dans MLflow UI
+                # =====================================================
+                dataset_ok = False
+                dataset_err = None
+                dataset_name_logged = None
+
+                if log_mlflow_dataset and isinstance(source_dataset_df, pd.DataFrame):
+                    dataset_ok, dataset_err, dataset_name_logged = _log_feast_dataset_entity_to_mlflow(
+                        source_dataset_df,
+                        feast_feature_name=feast_feature_name,
+                        model_label=model_label,
+                        partition=partition,
+                        tmp_dir=str(tmp_dir),
+                        context="training",
+                        source_dataset_name=source_dataset_name,
+                    )
+
+                mlflow.set_tag("dataset_logged", str(bool(dataset_ok)).lower())
+                if dataset_name_logged is not None:
+                    mlflow.set_tag("dataset_name_logged", dataset_name_logged)
+
+                if dataset_err is not None:
+                    mlflow.set_tag("dataset_log_error", str(dataset_err)[:500])
+                    p = tmp_dir / "dataset_log_error.txt"
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(str(dataset_err))
+                    mlflow.log_artifact(str(p), artifact_path="logs")
+
+                Xp2 = None
+                if isinstance(X_by_partition, dict):
+                    Xp = X_by_partition.get((model_label, partition), None)
+                    if Xp is None:
+                        Xp = X_by_partition.get((model_label, "ALL"), None)
+                    if isinstance(Xp, pd.DataFrame):
+                        Xp2 = Xp.copy()
+                        if "ds" in Xp2.columns:
+                            Xp2["ds"] = pd.to_datetime(Xp2["ds"], errors="coerce")
+                        p = tmp_dir / f"X_{model_label}_{partition}.parquet"
+                        Xp2.to_parquet(p, index=False)
+                        mlflow.log_artifact(str(p), artifact_path="functional")
+
+                if isinstance(features_by_partition, dict):
+                    feats = features_by_partition.get((model_label, partition), None)
+                    if feats is None:
+                        feats = features_by_partition.get((model_label, "ALL"), None)
+                    if feats is not None:
+                        p = tmp_dir / f"features_{model_label}_{partition}.json"
+                        _safe_write_json(list(map(str, feats)), p)
+                        mlflow.log_artifact(str(p), artifact_path="functional")
+
+                model_obj = None
+                if isinstance(fitted_models, dict):
+                    model_obj = fitted_models.get((model_label, partition), None)
+                    if model_obj is None:
+                        model_obj = fitted_models.get((model_label, "ALL"), None)
+                    if model_obj is None:
+                        model_obj = fitted_models.get(model_label, None)
+
+                if model_obj is not None:
+                    saved_path = _serialize_model_candidate(
+                        model_obj=model_obj,
+                        base_dir=tmp_dir / "models",
+                        stem=f"model_{model_label}_{partition}",
+                    )
+                    if saved_path is not None:
+                        mlflow.log_artifact(str(saved_path), artifact_path="models")
+
+                    try:
+                        est = _unwrap_estimator_from_mlf(model_obj, preferred_key=model_label)
+                        saved_est = _serialize_model_candidate(
+                            model_obj=est,
+                            base_dir=tmp_dir / "models",
+                            stem=f"estimator_{model_label}_{partition}",
+                        )
+                        if saved_est is not None:
+                            mlflow.log_artifact(str(saved_est), artifact_path="models")
+
+                        if log_mlflow_model:
+                            X_example = Xp2 if isinstance(Xp2, pd.DataFrame) else source_dataset_df
+                            flavor_used = _log_model_entity_to_mlflow(
+                                est,
+                                model_name=f"model_entity_{model_label}_{partition}",
+                                X_example=X_example,
+                            )
+                            if flavor_used is not None:
+                                mlflow.set_tag("mlflow_model_flavor", flavor_used)
+                    except Exception as e:
+                        p = tmp_dir / "model_log_error.txt"
+                        with open(p, "w", encoding="utf-8") as f:
+                            f.write(str(e))
+                        mlflow.log_artifact(str(p), artifact_path="logs")
+
+                if isinstance(train_fit_dates, dict):
+                    tfd = train_fit_dates.get((model_label, partition), None)
+                    if tfd is None:
+                        tfd = train_fit_dates.get(model_label, None)
+                    if tfd is not None:
+                        p = tmp_dir / f"train_fit_dates_{model_label}_{partition}.json"
+                        _safe_write_json(tfd, p)
+                        mlflow.log_artifact(str(p), artifact_path="meta")
+
+                if isinstance(extra_figures, dict):
+                    figs = extra_figures.get((model_label, partition), None)
+                    if isinstance(figs, dict):
+                        for fname, fig in figs.items():
+                            try:
+                                mlflow.log_figure(fig, f"plots/{fname}")
+                            except Exception:
+                                local_fig = tmp_dir / fname
+                                fig.savefig(local_fig, dpi=200, bbox_inches="tight")
+                                mlflow.log_artifact(str(local_fig), artifact_path="plots")
+
+                out_txt = stdout_buf.getvalue().strip()
+                err_txt = stderr_buf.getvalue().strip()
+
+                if out_txt:
+                    p = tmp_dir / "stdout.txt"
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(out_txt)
+                    mlflow.log_artifact(str(p), artifact_path="logs")
+
+                if err_txt:
+                    p = tmp_dir / "stderr.txt"
+                    with open(p, "w", encoding="utf-8") as f:
+                        f.write(err_txt)
+                    mlflow.log_artifact(str(p), artifact_path="logs")
+
+
+# =========================================================
+# Import MLflow complet
+# =========================================================
+def import_mlflow_experiment(
+    *,
+    tracking_uri,
+    experiment_name,
+    dl_dir="mlflow_import",
+    prefer_latest_only=True,
+    try_load_logged_mlflow_models=True,
+):
+    _ensure_dir(dl_dir)
+
+    mlflow.set_tracking_uri(tracking_uri)
+    client = MlflowClient()
+
+    exp = mlflow.get_experiment_by_name(experiment_name)
+    if exp is None:
+        raise ValueError(f"Experiment introuvable: {experiment_name}")
+
+    runs = mlflow.search_runs([exp.experiment_id], output_format="pandas")
+    if runs.empty:
+        raise ValueError("Aucun run trouvé.")
+
+    runs = runs.sort_values("start_time", ascending=False).reset_index(drop=True)
+
+    def _get_col(df, cands):
+        for c in cands:
+            if c in df.columns:
+                return c
+        return None
+
+    col_model = _get_col(runs, ["params.model_label", "tags.model_label"])
+    col_part = _get_col(runs, ["params.partition", "tags.partition"])
+    col_name = _get_col(runs, ["params.model_name", "tags.model_name"])
+
+    if col_model is None or col_part is None:
+        raise ValueError("Impossible de trouver model_label / partition dans les runs MLflow.")
+
+    runs["model_label"] = runs[col_model].astype(str)
+    runs["partition"] = runs[col_part].astype(str)
+    runs["model_name"] = runs[col_name].astype(str) if col_name is not None else runs["model_label"].astype(str)
+
+    if prefer_latest_only:
+        runs = (
+            runs.sort_values("start_time", ascending=False)
+            .drop_duplicates(subset=["model_label", "partition"], keep="first")
+            .reset_index(drop=True)
+        )
+
+    score_rows = []
+    leaderboard_rows = []
+
+    results_perm_mae_by_part = {}
+    results_perm_deviance_by_part = {}
+    results_shap_share_by_part = {}
+
+    bkt_by_run = {}
+    X_by_run = {}
+    features_by_run = {}
+    models_mlflow = {}
+    meta_by_run = {}
+    train_fit_dates_by_run = {}
+
+    def _safe_read_csv(path):
+        try:
+            return pd.read_csv(path)
+        except Exception:
+            return None
+
+    def _safe_read_parquet(path):
+        try:
+            return pd.read_parquet(path)
+        except Exception:
+            return None
+
+    def _safe_read_json(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
+    def _safe_load_model(path):
+        try:
+            if str(path).lower().endswith(".joblib"):
+                return joblib.load(path)
+            with open(path, "rb") as f:
+                return pickle.load(f)
+        except Exception:
+            return None
+
+    def _append_expl_store(store, partition, df, model_label):
+        if df is None or len(df) == 0:
+            return
+        tmp = df.copy()
+        if "model_label" not in tmp.columns:
+            tmp["model_label"] = str(model_label)
+        store.setdefault(partition, [])
+        store[partition].append(tmp)
+
+    for _, rr in runs.iterrows():
+        run_id = rr["run_id"]
+        model_label = str(rr["model_label"])
+        partition = str(rr["partition"])
+        key = (model_label, partition)
+
+        run_dir = os.path.join(dl_dir, model_label, partition)
+        _ensure_dir(run_dir)
+
+        try:
+            artifacts = _list_artifacts_recursive(client, run_id, path="")
+        except Exception:
+            artifacts = []
+
+        for ap in artifacts:
+            apl = ap.lower()
+
+            if "score/" in apl and apl.endswith(".csv"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                df = _safe_read_csv(local)
+                if df is not None and len(df):
+                    if "model_label" not in df.columns:
+                        df["model_label"] = model_label
+                    if "partition" not in df.columns:
+                        df["partition"] = partition
+                    score_rows.append(df)
+
+            elif "leaderboard/" in apl and apl.endswith(".csv"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                df = _safe_read_csv(local)
+                if df is not None and len(df):
+                    if "partition" not in df.columns:
+                        df["partition"] = partition
+                    leaderboard_rows.append(df)
+
+            elif "explainability/" in apl and apl.endswith(".csv"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                df = _safe_read_csv(local)
+                if df is None or len(df) == 0:
+                    continue
+
+                if "perm_mae" in apl:
+                    _append_expl_store(results_perm_mae_by_part, partition, df, model_label)
+                elif "perm_dev" in apl or "perm_deviance" in apl:
+                    _append_expl_store(results_perm_deviance_by_part, partition, df, model_label)
+                elif "shap" in apl:
+                    _append_expl_store(results_shap_share_by_part, partition, df, model_label)
+
+            elif "backtest/" in apl and apl.endswith(".parquet"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                df = _safe_read_parquet(local)
+                if df is not None:
+                    bkt_by_run[key] = df
+
+            elif ("functional/" in apl or "/x_" in apl or apl.startswith("x_")) and apl.endswith(".parquet"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                df = _safe_read_parquet(local)
+                if df is not None:
+                    X_by_run[key] = df
+
+            elif ("functional/" in apl or "features_" in apl) and apl.endswith(".json"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                obj = _safe_read_json(local)
+                if obj is not None:
+                    features_by_run[key] = obj
+
+            elif "meta/" in apl and "train_fit_dates_" in apl and apl.endswith(".json"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                obj = _safe_read_json(local)
+                if obj is not None:
+                    train_fit_dates_by_run[key] = obj
+
+            elif "meta/" in apl and "meta_" in apl and apl.endswith(".json"):
+                local = _download_artifact(client, run_id, ap, run_dir)
+                obj = _safe_read_json(local)
+                if obj is not None:
+                    meta_by_run[key] = obj
+
+        if try_load_logged_mlflow_models:
+            candidate_model_entities = [
+                f"model_entity_{model_label}_{partition}",
+                "model",
+            ]
+            for art in candidate_model_entities:
+                loaded = _load_mlflow_logged_model(run_id, art)
+                if loaded is not None:
+                    models_mlflow[key] = loaded
+                    break
+
+        if key not in models_mlflow:
+            model_candidates = []
+            for ap in artifacts:
+                apl = ap.lower()
+                if "models/" in apl and (apl.endswith(".joblib") or apl.endswith(".pkl") or apl.endswith(".pickle")):
+                    model_candidates.append(ap)
+
+            def _rank_model_path(x):
+                xl = x.lower()
+                score = 100
+                if f"estimator_{model_label.lower()}_{partition.lower()}.joblib" in xl:
+                    score = 0
+                elif f"model_{model_label.lower()}_{partition.lower()}.joblib" in xl:
+                    score = 1
+                elif xl.endswith(".joblib"):
+                    score = 2
+                elif xl.endswith(".pkl") or xl.endswith(".pickle"):
+                    score = 3
+                return score, len(x)
+
+            model_candidates = sorted(model_candidates, key=_rank_model_path)
+
+            for ap in model_candidates:
+                local = _download_artifact(client, run_id, ap, run_dir)
+                loaded_model = _safe_load_model(local)
+                if loaded_model is not None:
+                    models_mlflow[key] = loaded_model
+                    break
+
+    score_df_exp = (
+        pd.concat(score_rows, axis=0, ignore_index=True).drop_duplicates().reset_index(drop=True)
+        if len(score_rows) else None
+    )
+
+    leaderboard_exp = (
+        pd.concat(leaderboard_rows, axis=0, ignore_index=True).drop_duplicates().reset_index(drop=True)
+        if len(leaderboard_rows) else None
+    )
+
+    for part, lst in list(results_perm_mae_by_part.items()):
+        results_perm_mae_by_part[part] = (
+            pd.concat(lst, axis=0, ignore_index=True).drop_duplicates().reset_index(drop=True)
+            if len(lst) else pd.DataFrame()
+        )
+
+    for part, lst in list(results_perm_deviance_by_part.items()):
+        results_perm_deviance_by_part[part] = (
+            pd.concat(lst, axis=0, ignore_index=True).drop_duplicates().reset_index(drop=True)
+            if len(lst) else pd.DataFrame()
+        )
+
+    for part, lst in list(results_shap_share_by_part.items()):
+        results_shap_share_by_part[part] = (
+            pd.concat(lst, axis=0, ignore_index=True).drop_duplicates().reset_index(drop=True)
+            if len(lst) else pd.DataFrame()
+        )
+
+    return {
+        "runs": runs,
+        "score_df_exp": score_df_exp,
+        "leaderboard_exp": leaderboard_exp,
+        "results_perm_mae_by_part": results_perm_mae_by_part,
+        "results_perm_deviance_by_part": results_perm_deviance_by_part,
+        "results_shap_share_by_part": results_shap_share_by_part,
+        "bkt_by_run": bkt_by_run,
+        "X_by_run": X_by_run,
+        "features_by_run": features_by_run,
+        "models_mlflow": models_mlflow,
+        "meta_by_run": meta_by_run,
+        "train_fit_dates_by_run": train_fit_dates_by_run,
+    }
+
+
+def build_models_and_X_for_functional_plots(
+    *,
+    models_mlflow,
+    X_by_run,
+    features_by_run=None,
+    preferred_partition="ALL",
+    labels_map=None,
+):
+    if labels_map is None:
+        labels_map = {}
+
+    all_keys = sorted(set(models_mlflow.keys()) | set(X_by_run.keys()))
+    all_model_labels = sorted(set(k[0] for k in all_keys))
+
+    models_dict = {}
+    X_dict_out = {}
+    features_dict = {}
+
+    for model_label in all_model_labels:
+        chosen_key = None
+
+        if (model_label, preferred_partition) in models_mlflow and (model_label, preferred_partition) in X_by_run:
+            chosen_key = (model_label, preferred_partition)
+        else:
+            common = [k for k in all_keys if k[0] == model_label and k in models_mlflow and k in X_by_run]
+            if len(common):
+                common = sorted(common, key=lambda x: (x[1] != preferred_partition, x[1]))
+                chosen_key = common[0]
+
+        if chosen_key is None:
+            continue
+
+        display_name = labels_map.get(model_label, model_label)
+        model_obj = models_mlflow[chosen_key]
+        prep = None
+
+        models_dict[display_name] = (model_obj, prep)
+        X_dict_out[display_name] = X_by_run[chosen_key]
+
+        if isinstance(features_by_run, dict) and chosen_key in features_by_run:
+            features_dict[display_name] = features_by_run[chosen_key]
+
+    return models_dict, X_dict_out, features_dict

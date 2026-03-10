@@ -1,0 +1,16 @@
+{
+  "features": [
+    "LR",
+    "LR-lo-95",
+    "LR-hi-95",
+    "LR_tune_block",
+    "LR_tune_mae",
+    "RIDGE",
+    "RIDGE-lo-95",
+    "RIDGE-hi-95",
+    "RIDGE_tune_block",
+    "RIDGE_tune_mae",
+    "LGBM_tune_block",
+    "LGBM_tune_mae"
+  ]
+}

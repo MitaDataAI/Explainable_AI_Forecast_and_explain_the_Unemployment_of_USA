@@ -1,0 +1,2 @@
+unique_id,model_label,model_name,partition,mae,coverage,width,n,perm_mae_top1_feature,perm_mae_top1,perm_dev_top1_feature,perm_dev_top1,shap_share_top1_feature,shap_share_top1
+UNRATE,LGBM,LGBM,2000-2008,0.5217875603473963,0.6574074074074074,1.3120460730328323,108,BUSLOANS_lag12,1.0061027053754859,TB3MS_lag12,1.0048431240489617,SP500_lag12,0.2396652927769152

@@ -1,0 +1,207 @@
+{
+  "model": "LR",
+  "h": 24,
+  "step_size": 1,
+  "exp_start": "1990-01-01T00:00:00",
+  "exp_end": "2025-08-01T00:00:00",
+  "cutoff_start": "1988-01-01T00:00:00",
+  "cutoff_end": "2023-08-01T00:00:00",
+  "partitions": 428,
+  "pi_windows": 3,
+  "tune_every_months": 36,
+  "tune_cv_windows": 6,
+  "tunable": false,
+  "search": "random",
+  "n_iter": 50,
+  "use_conformal_in_tune": false,
+  "param_space": null,
+  "params_history": [
+    {
+      "model": "LR",
+      "block": 1,
+      "cutoff_start": "1988-01-01T00:00:00",
+      "n_windows": 36
+    },
+    {
+      "model": "LR",
+      "block": 2,
+      "cutoff_start": "1991-01-01T00:00:00",
+      "n_windows": 36
+    },
+    {
+      "model": "LR",
+      "block": 3,
+      "cutoff_start": "1994-01-01T00:00:00",
+      "n_windows": 36
+    },
+    {
+      "model": "LR",
+      "block": 4,
+      "cutoff_start": "1997-01-01T00:00:00",
+      "n_windows": 36
+    },
+    {
+      "model": "LR",
+      "block": 5,
+      "cutoff_start": "2000-01-01T00:00:00",
+      "n_windows": 36
+    },
+    {
+      "model": "LR",
+      "block": 6,
+      "cutoff_start": "2003-01-01T00:00:00",
+      "n_windows": 36
+    },
+    {
+      "model": "LR",
+      "block": 7,
+      "cutoff_start": "2006-01-01T00:00:00",
+      "n_windows": 36
+    },
+    {
+      "model": "LR",
+      "block": 8,
+      "cutoff_start": "2009-01-01T00:00:00",
+      "n_windows": 36
+    },
+    {
+      "model": "LR",
+      "block": 9,
+      "cutoff_start": "2012-01-01T00:00:00",
+      "n_windows": 36
+    },
+    {
+      "model": "LR",
+      "block": 10,
+      "cutoff_start": "2015-01-01T00:00:00",
+      "n_windows": 36
+    },
+    {
+      "model": "LR",
+      "block": 11,
+      "cutoff_start": "2018-01-01T00:00:00",
+      "n_windows": 36
+    },
+    {
+      "model": "LR",
+      "block": 12,
+      "cutoff_start": "2021-01-01T00:00:00",
+      "n_windows": 32
+    }
+  ],
+  "tune_history": [
+    {
+      "model": "LR",
+      "block": 1,
+      "cutoff_start": "1988-01-01T00:00:00",
+      "tune_mae": NaN
+    },
+    {
+      "model": "LR",
+      "block": 2,
+      "cutoff_start": "1991-01-01T00:00:00",
+      "tune_mae": NaN
+    },
+    {
+      "model": "LR",
+      "block": 3,
+      "cutoff_start": "1994-01-01T00:00:00",
+      "tune_mae": NaN
+    },
+    {
+      "model": "LR",
+      "block": 4,
+      "cutoff_start": "1997-01-01T00:00:00",
+      "tune_mae": NaN
+    },
+    {
+      "model": "LR",
+      "block": 5,
+      "cutoff_start": "2000-01-01T00:00:00",
+      "tune_mae": NaN
+    },
+    {
+      "model": "LR",
+      "block": 6,
+      "cutoff_start": "2003-01-01T00:00:00",
+      "tune_mae": NaN
+    },
+    {
+      "model": "LR",
+      "block": 7,
+      "cutoff_start": "2006-01-01T00:00:00",
+      "tune_mae": NaN
+    },
+    {
+      "model": "LR",
+      "block": 8,
+      "cutoff_start": "2009-01-01T00:00:00",
+      "tune_mae": NaN
+    },
+    {
+      "model": "LR",
+      "block": 9,
+      "cutoff_start": "2012-01-01T00:00:00",
+      "tune_mae": NaN
+    },
+    {
+      "model": "LR",
+      "block": 10,
+      "cutoff_start": "2015-01-01T00:00:00",
+      "tune_mae": NaN
+    },
+    {
+      "model": "LR",
+      "block": 11,
+      "cutoff_start": "2018-01-01T00:00:00",
+      "tune_mae": NaN
+    },
+    {
+      "model": "LR",
+      "block": 12,
+      "cutoff_start": "2021-01-01T00:00:00",
+      "tune_mae": NaN
+    }
+  ],
+  "fitted_models": [
+    "MLForecast(models=[LR], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LR], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LR], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LR], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LR], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LR], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LR], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LR], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LR], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LR], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LR], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LR], freq=MS, lag_features=[], date_features=[], num_threads=1)"
+  ],
+  "train_fit_dates": [
+    "1988-01-01T00:00:00",
+    "1991-01-01T00:00:00",
+    "1994-01-01T00:00:00",
+    "1997-01-01T00:00:00",
+    "2000-01-01T00:00:00",
+    "2003-01-01T00:00:00",
+    "2006-01-01T00:00:00",
+    "2009-01-01T00:00:00",
+    "2012-01-01T00:00:00",
+    "2015-01-01T00:00:00",
+    "2018-01-01T00:00:00",
+    "2021-01-01T00:00:00"
+  ],
+  "features": [
+    "BUSLOANS_lag12",
+    "CPIAUCSL_lag12",
+    "DPCERA3M086SBEA_lag12",
+    "INDPRO_lag12",
+    "M2SL_lag12",
+    "OILPRICEX_lag12",
+    "RPI_lag12",
+    "SP500_lag12",
+    "TB3MS_lag12",
+    "USREC_lag12"
+  ],
+  "preprocs": null
+}

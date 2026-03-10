@@ -1,0 +1,26 @@
+{
+  "dataset_name": "stationary_value_value_ts_lag6",
+  "feast_feature_name": "stationary_value:value",
+  "partition": "2009-2019",
+  "model_label": "RIDGE",
+  "n_rows": 782,
+  "n_cols": 14,
+  "columns": [
+    "unique_id",
+    "ds",
+    "y",
+    "BUSLOANS_lag6",
+    "CPIAUCSL_lag6",
+    "DPCERA3M086SBEA_lag6",
+    "INDPRO_lag6",
+    "M2SL_lag6",
+    "OILPRICEX_lag6",
+    "RPI_lag6",
+    "SP500_lag6",
+    "TB3MS_lag6",
+    "UNRATE_lag6",
+    "USREC_lag6"
+  ],
+  "snapshot_uri": "file:///D:/Portofolio%20Data%20science/Time%20Series/Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA/3_notebook/ML%20Experiment/mlflow_tmp/RIDGE/2009-2019/dataset_snapshot/stationary_value_value_ts_lag6.parquet",
+  "context": "training"
+}

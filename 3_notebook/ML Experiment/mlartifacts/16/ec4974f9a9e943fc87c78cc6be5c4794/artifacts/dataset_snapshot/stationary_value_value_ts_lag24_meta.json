@@ -1,0 +1,25 @@
+{
+  "dataset_name": "stationary_value_value_ts_lag24",
+  "feast_feature_name": "stationary_value:value",
+  "partition": "ALL",
+  "model_label": "LGBM",
+  "n_rows": 764,
+  "n_cols": 13,
+  "columns": [
+    "unique_id",
+    "ds",
+    "y",
+    "BUSLOANS_lag24",
+    "CPIAUCSL_lag24",
+    "DPCERA3M086SBEA_lag24",
+    "INDPRO_lag24",
+    "M2SL_lag24",
+    "OILPRICEX_lag24",
+    "RPI_lag24",
+    "SP500_lag24",
+    "TB3MS_lag24",
+    "USREC_lag24"
+  ],
+  "snapshot_uri": "file:///D:/Portofolio%20Data%20science/Time%20Series/Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA/3_notebook/ML%20Experiment/mlflow_tmp/LGBM/ALL/dataset_snapshot/stationary_value_value_ts_lag24.parquet",
+  "context": "training"
+}

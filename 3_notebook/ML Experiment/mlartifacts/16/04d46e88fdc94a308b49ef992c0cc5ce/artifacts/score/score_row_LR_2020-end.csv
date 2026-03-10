@@ -1,0 +1,2 @@
+unique_id,model_label,model_name,partition,mae,coverage,width,n,perm_mae_top1_feature,perm_mae_top1,perm_dev_top1_feature,perm_dev_top1,shap_share_top1_feature,shap_share_top1
+UNRATE,LR,LR,2020-end,2.035261082577756,0.7794117647058824,6.932913852473864,68,BUSLOANS_lag36,1.0066643251988268,BUSLOANS_lag36,1.0049881722578824,CPIAUCSL_lag36,0.3275710473430666

@@ -1,0 +1,399 @@
+{
+  "model": "LGBM",
+  "h": 12,
+  "step_size": 1,
+  "exp_start": "1990-01-01T00:00:00",
+  "exp_end": "2025-08-01T00:00:00",
+  "cutoff_start": "1989-01-01T00:00:00",
+  "cutoff_end": "2024-08-01T00:00:00",
+  "partitions": 428,
+  "pi_windows": 3,
+  "tune_every_months": 36,
+  "tune_cv_windows": 6,
+  "tunable": true,
+  "search": "random",
+  "n_iter": 12,
+  "use_conformal_in_tune": false,
+  "param_space": {
+    "subsample": [
+      0.05,
+      0.1,
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      0.8,
+      0.9,
+      1.0
+    ],
+    "colsample_bytree": [
+      0.2,
+      0.3,
+      0.4,
+      0.5,
+      0.6,
+      0.7,
+      1.0
+    ],
+    "num_leaves": [
+      2,
+      3,
+      4,
+      5,
+      8,
+      10,
+      20,
+      40,
+      70,
+      100
+    ],
+    "n_estimators": [
+      5,
+      10,
+      20,
+      30,
+      40,
+      50,
+      75,
+      100
+    ],
+    "max_depth": [
+      1,
+      2,
+      3,
+      5,
+      8,
+      15,
+      -1
+    ],
+    "reg_alpha": [
+      0,
+      0.1,
+      1,
+      2,
+      7,
+      10,
+      50,
+      100
+    ],
+    "reg_lambda": [
+      0,
+      0.1,
+      1,
+      10,
+      20,
+      50,
+      100
+    ],
+    "min_child_samples": [
+      5,
+      10,
+      15
+    ],
+    "min_split_gain": [
+      0.0,
+      0.01,
+      0.05
+    ]
+  },
+  "params_history": [
+    {
+      "model": "LGBM",
+      "block": 1,
+      "cutoff_start": "1989-01-01T00:00:00",
+      "n_windows": 36,
+      "subsample": 0.2,
+      "reg_lambda": 10,
+      "reg_alpha": 10,
+      "num_leaves": 5,
+      "n_estimators": 75,
+      "min_split_gain": 0.01,
+      "min_child_samples": 10,
+      "max_depth": 15,
+      "colsample_bytree": 1.0
+    },
+    {
+      "model": "LGBM",
+      "block": 2,
+      "cutoff_start": "1992-01-01T00:00:00",
+      "n_windows": 36,
+      "subsample": 0.2,
+      "reg_lambda": 10,
+      "reg_alpha": 10,
+      "num_leaves": 5,
+      "n_estimators": 75,
+      "min_split_gain": 0.01,
+      "min_child_samples": 10,
+      "max_depth": 15,
+      "colsample_bytree": 1.0
+    },
+    {
+      "model": "LGBM",
+      "block": 3,
+      "cutoff_start": "1995-01-01T00:00:00",
+      "n_windows": 36,
+      "subsample": 0.4,
+      "reg_lambda": 0.1,
+      "reg_alpha": 2,
+      "num_leaves": 40,
+      "n_estimators": 40,
+      "min_split_gain": 0.05,
+      "min_child_samples": 5,
+      "max_depth": 2,
+      "colsample_bytree": 0.7
+    },
+    {
+      "model": "LGBM",
+      "block": 4,
+      "cutoff_start": "1998-01-01T00:00:00",
+      "n_windows": 36,
+      "subsample": 1.0,
+      "reg_lambda": 20,
+      "reg_alpha": 10,
+      "num_leaves": 2,
+      "n_estimators": 30,
+      "min_split_gain": 0.0,
+      "min_child_samples": 15,
+      "max_depth": 1,
+      "colsample_bytree": 0.5
+    },
+    {
+      "model": "LGBM",
+      "block": 5,
+      "cutoff_start": "2001-01-01T00:00:00",
+      "n_windows": 36,
+      "subsample": 1.0,
+      "reg_lambda": 0.1,
+      "reg_alpha": 2,
+      "num_leaves": 10,
+      "n_estimators": 10,
+      "min_split_gain": 0.0,
+      "min_child_samples": 5,
+      "max_depth": 3,
+      "colsample_bytree": 0.6
+    },
+    {
+      "model": "LGBM",
+      "block": 6,
+      "cutoff_start": "2004-01-01T00:00:00",
+      "n_windows": 36,
+      "subsample": 1.0,
+      "reg_lambda": 100,
+      "reg_alpha": 50,
+      "num_leaves": 70,
+      "n_estimators": 100,
+      "min_split_gain": 0.01,
+      "min_child_samples": 15,
+      "max_depth": 8,
+      "colsample_bytree": 0.6
+    },
+    {
+      "model": "LGBM",
+      "block": 7,
+      "cutoff_start": "2007-01-01T00:00:00",
+      "n_windows": 36,
+      "subsample": 0.4,
+      "reg_lambda": 0.1,
+      "reg_alpha": 2,
+      "num_leaves": 40,
+      "n_estimators": 40,
+      "min_split_gain": 0.05,
+      "min_child_samples": 5,
+      "max_depth": 2,
+      "colsample_bytree": 0.7
+    },
+    {
+      "model": "LGBM",
+      "block": 8,
+      "cutoff_start": "2010-01-01T00:00:00",
+      "n_windows": 36,
+      "subsample": 0.4,
+      "reg_lambda": 0.1,
+      "reg_alpha": 2,
+      "num_leaves": 40,
+      "n_estimators": 40,
+      "min_split_gain": 0.05,
+      "min_child_samples": 5,
+      "max_depth": 2,
+      "colsample_bytree": 0.7
+    },
+    {
+      "model": "LGBM",
+      "block": 9,
+      "cutoff_start": "2013-01-01T00:00:00",
+      "n_windows": 36,
+      "subsample": 0.2,
+      "reg_lambda": 10,
+      "reg_alpha": 10,
+      "num_leaves": 5,
+      "n_estimators": 75,
+      "min_split_gain": 0.01,
+      "min_child_samples": 10,
+      "max_depth": 15,
+      "colsample_bytree": 1.0
+    },
+    {
+      "model": "LGBM",
+      "block": 10,
+      "cutoff_start": "2016-01-01T00:00:00",
+      "n_windows": 36,
+      "subsample": 0.2,
+      "reg_lambda": 10,
+      "reg_alpha": 10,
+      "num_leaves": 5,
+      "n_estimators": 75,
+      "min_split_gain": 0.01,
+      "min_child_samples": 10,
+      "max_depth": 15,
+      "colsample_bytree": 1.0
+    },
+    {
+      "model": "LGBM",
+      "block": 11,
+      "cutoff_start": "2019-01-01T00:00:00",
+      "n_windows": 36,
+      "subsample": 0.4,
+      "reg_lambda": 1,
+      "reg_alpha": 0,
+      "num_leaves": 100,
+      "n_estimators": 40,
+      "min_split_gain": 0.0,
+      "min_child_samples": 15,
+      "max_depth": 3,
+      "colsample_bytree": 0.5
+    },
+    {
+      "model": "LGBM",
+      "block": 12,
+      "cutoff_start": "2022-01-01T00:00:00",
+      "n_windows": 32,
+      "subsample": 0.4,
+      "reg_lambda": 0.1,
+      "reg_alpha": 2,
+      "num_leaves": 40,
+      "n_estimators": 40,
+      "min_split_gain": 0.05,
+      "min_child_samples": 5,
+      "max_depth": 2,
+      "colsample_bytree": 0.7
+    }
+  ],
+  "tune_history": [
+    {
+      "model": "LGBM",
+      "block": 1,
+      "cutoff_start": "1989-01-01T00:00:00",
+      "tune_mae": 0.09405056969971544
+    },
+    {
+      "model": "LGBM",
+      "block": 2,
+      "cutoff_start": "1992-01-01T00:00:00",
+      "tune_mae": 0.19967148104983956
+    },
+    {
+      "model": "LGBM",
+      "block": 3,
+      "cutoff_start": "1995-01-01T00:00:00",
+      "tune_mae": 0.16353931699577282
+    },
+    {
+      "model": "LGBM",
+      "block": 4,
+      "cutoff_start": "1998-01-01T00:00:00",
+      "tune_mae": 0.14947107860882777
+    },
+    {
+      "model": "LGBM",
+      "block": 5,
+      "cutoff_start": "2001-01-01T00:00:00",
+      "tune_mae": 0.08931907800708276
+    },
+    {
+      "model": "LGBM",
+      "block": 6,
+      "cutoff_start": "2004-01-01T00:00:00",
+      "tune_mae": 0.11819115138854208
+    },
+    {
+      "model": "LGBM",
+      "block": 7,
+      "cutoff_start": "2007-01-01T00:00:00",
+      "tune_mae": 0.088988022253623
+    },
+    {
+      "model": "LGBM",
+      "block": 8,
+      "cutoff_start": "2010-01-01T00:00:00",
+      "tune_mae": 0.8663034505197391
+    },
+    {
+      "model": "LGBM",
+      "block": 9,
+      "cutoff_start": "2013-01-01T00:00:00",
+      "tune_mae": 0.15998037056781764
+    },
+    {
+      "model": "LGBM",
+      "block": 10,
+      "cutoff_start": "2016-01-01T00:00:00",
+      "tune_mae": 0.17175791296066723
+    },
+    {
+      "model": "LGBM",
+      "block": 11,
+      "cutoff_start": "2019-01-01T00:00:00",
+      "tune_mae": 0.12266178979957802
+    },
+    {
+      "model": "LGBM",
+      "block": 12,
+      "cutoff_start": "2022-01-01T00:00:00",
+      "tune_mae": 2.4642681413430596
+    }
+  ],
+  "fitted_models": [
+    "MLForecast(models=[LGBM], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LGBM], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LGBM], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LGBM], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LGBM], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LGBM], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LGBM], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LGBM], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LGBM], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LGBM], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LGBM], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[LGBM], freq=MS, lag_features=[], date_features=[], num_threads=1)"
+  ],
+  "train_fit_dates": [
+    "1989-01-01T00:00:00",
+    "1992-01-01T00:00:00",
+    "1995-01-01T00:00:00",
+    "1998-01-01T00:00:00",
+    "2001-01-01T00:00:00",
+    "2004-01-01T00:00:00",
+    "2007-01-01T00:00:00",
+    "2010-01-01T00:00:00",
+    "2013-01-01T00:00:00",
+    "2016-01-01T00:00:00",
+    "2019-01-01T00:00:00",
+    "2022-01-01T00:00:00"
+  ],
+  "features": [
+    "BUSLOANS_lag1",
+    "CPIAUCSL_lag1",
+    "DPCERA3M086SBEA_lag1",
+    "INDPRO_lag1",
+    "M2SL_lag1",
+    "OILPRICEX_lag1",
+    "RPI_lag1",
+    "SP500_lag1",
+    "TB3MS_lag1",
+    "UNRATE_lag1",
+    "USREC_lag1"
+  ],
+  "preprocs": null
+}

@@ -1,0 +1,2 @@
+unique_id,model_label,model_name,partition,mae,coverage,width,n,perm_mae_top1_feature,perm_mae_top1,perm_dev_top1_feature,perm_dev_top1,shap_share_top1_feature,shap_share_top1
+UNRATE,LGBM,LGBM,ALL,0.7328366196972209,0.7476635514018691,2.4792801617224964,428,USREC_lag12,1.0304523987992744,CPIAUCSL_lag12,1.0296907543924656,UNRATE_lag12,0.2030222419021403

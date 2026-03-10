@@ -1,0 +1,252 @@
+{
+  "model": "RIDGE",
+  "h": 12,
+  "step_size": 1,
+  "exp_start": "1990-01-01T00:00:00",
+  "exp_end": "2025-08-01T00:00:00",
+  "cutoff_start": "1989-01-01T00:00:00",
+  "cutoff_end": "2024-08-01T00:00:00",
+  "partitions": 428,
+  "pi_windows": 3,
+  "tune_every_months": 36,
+  "tune_cv_windows": 6,
+  "tunable": true,
+  "search": "grid",
+  "n_iter": 50,
+  "use_conformal_in_tune": false,
+  "param_space": {
+    "alpha": [
+      0.0001,
+      0.00018873918221350977,
+      0.0003562247890262444,
+      0.0006723357536499335,
+      0.0012689610031679222,
+      0.002395026619987486,
+      0.004520353656360241,
+      0.008531678524172805,
+      0.01610262027560939,
+      0.03039195382313198,
+      0.05736152510448681,
+      0.1082636733874054,
+      0.20433597178569418,
+      0.38566204211634725,
+      0.7278953843983146,
+      1.3738237958832638,
+      2.592943797404667,
+      4.893900918477489,
+      9.236708571873866,
+      17.433288221999874,
+      32.90344562312671,
+      62.10169418915616,
+      117.21022975334793,
+      221.22162910704503,
+      417.53189365604004,
+      788.0462815669904,
+      1487.3521072935118,
+      2807.2162039411755,
+      5298.316906283702,
+      10000.0
+    ]
+  },
+  "params_history": [
+    {
+      "model": "RIDGE",
+      "block": 1,
+      "cutoff_start": "1989-01-01T00:00:00",
+      "n_windows": 36,
+      "alpha": 0.38566204211634725
+    },
+    {
+      "model": "RIDGE",
+      "block": 2,
+      "cutoff_start": "1992-01-01T00:00:00",
+      "n_windows": 36,
+      "alpha": 17.433288221999874
+    },
+    {
+      "model": "RIDGE",
+      "block": 3,
+      "cutoff_start": "1995-01-01T00:00:00",
+      "n_windows": 36,
+      "alpha": 0.7278953843983146
+    },
+    {
+      "model": "RIDGE",
+      "block": 4,
+      "cutoff_start": "1998-01-01T00:00:00",
+      "n_windows": 36,
+      "alpha": 0.20433597178569418
+    },
+    {
+      "model": "RIDGE",
+      "block": 5,
+      "cutoff_start": "2001-01-01T00:00:00",
+      "n_windows": 36,
+      "alpha": 9.236708571873866
+    },
+    {
+      "model": "RIDGE",
+      "block": 6,
+      "cutoff_start": "2004-01-01T00:00:00",
+      "n_windows": 36,
+      "alpha": 10000.0
+    },
+    {
+      "model": "RIDGE",
+      "block": 7,
+      "cutoff_start": "2007-01-01T00:00:00",
+      "n_windows": 36,
+      "alpha": 2.592943797404667
+    },
+    {
+      "model": "RIDGE",
+      "block": 8,
+      "cutoff_start": "2010-01-01T00:00:00",
+      "n_windows": 36,
+      "alpha": 0.0001
+    },
+    {
+      "model": "RIDGE",
+      "block": 9,
+      "cutoff_start": "2013-01-01T00:00:00",
+      "n_windows": 36,
+      "alpha": 1.3738237958832638
+    },
+    {
+      "model": "RIDGE",
+      "block": 10,
+      "cutoff_start": "2016-01-01T00:00:00",
+      "n_windows": 36,
+      "alpha": 2.592943797404667
+    },
+    {
+      "model": "RIDGE",
+      "block": 11,
+      "cutoff_start": "2019-01-01T00:00:00",
+      "n_windows": 36,
+      "alpha": 1.3738237958832638
+    },
+    {
+      "model": "RIDGE",
+      "block": 12,
+      "cutoff_start": "2022-01-01T00:00:00",
+      "n_windows": 32,
+      "alpha": 0.0001
+    }
+  ],
+  "tune_history": [
+    {
+      "model": "RIDGE",
+      "block": 1,
+      "cutoff_start": "1989-01-01T00:00:00",
+      "tune_mae": 0.4062891288817095
+    },
+    {
+      "model": "RIDGE",
+      "block": 2,
+      "cutoff_start": "1992-01-01T00:00:00",
+      "tune_mae": 0.5277803533161197
+    },
+    {
+      "model": "RIDGE",
+      "block": 3,
+      "cutoff_start": "1995-01-01T00:00:00",
+      "tune_mae": 0.49046833821708385
+    },
+    {
+      "model": "RIDGE",
+      "block": 4,
+      "cutoff_start": "1998-01-01T00:00:00",
+      "tune_mae": 0.13421576381533065
+    },
+    {
+      "model": "RIDGE",
+      "block": 5,
+      "cutoff_start": "2001-01-01T00:00:00",
+      "tune_mae": 0.08644641876433497
+    },
+    {
+      "model": "RIDGE",
+      "block": 6,
+      "cutoff_start": "2004-01-01T00:00:00",
+      "tune_mae": 0.2864838710040936
+    },
+    {
+      "model": "RIDGE",
+      "block": 7,
+      "cutoff_start": "2007-01-01T00:00:00",
+      "tune_mae": 0.204827680836761
+    },
+    {
+      "model": "RIDGE",
+      "block": 8,
+      "cutoff_start": "2010-01-01T00:00:00",
+      "tune_mae": 0.9945049025088717
+    },
+    {
+      "model": "RIDGE",
+      "block": 9,
+      "cutoff_start": "2013-01-01T00:00:00",
+      "tune_mae": 0.6122189236138921
+    },
+    {
+      "model": "RIDGE",
+      "block": 10,
+      "cutoff_start": "2016-01-01T00:00:00",
+      "tune_mae": 0.6706455172045104
+    },
+    {
+      "model": "RIDGE",
+      "block": 11,
+      "cutoff_start": "2019-01-01T00:00:00",
+      "tune_mae": 0.18757420302168637
+    },
+    {
+      "model": "RIDGE",
+      "block": 12,
+      "cutoff_start": "2022-01-01T00:00:00",
+      "tune_mae": 3.629490868849075
+    }
+  ],
+  "fitted_models": [
+    "MLForecast(models=[RIDGE], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[RIDGE], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[RIDGE], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[RIDGE], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[RIDGE], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[RIDGE], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[RIDGE], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[RIDGE], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[RIDGE], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[RIDGE], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[RIDGE], freq=MS, lag_features=[], date_features=[], num_threads=1)",
+    "MLForecast(models=[RIDGE], freq=MS, lag_features=[], date_features=[], num_threads=1)"
+  ],
+  "train_fit_dates": [
+    "1989-01-01T00:00:00",
+    "1992-01-01T00:00:00",
+    "1995-01-01T00:00:00",
+    "1998-01-01T00:00:00",
+    "2001-01-01T00:00:00",
+    "2004-01-01T00:00:00",
+    "2007-01-01T00:00:00",
+    "2010-01-01T00:00:00",
+    "2013-01-01T00:00:00",
+    "2016-01-01T00:00:00",
+    "2019-01-01T00:00:00",
+    "2022-01-01T00:00:00"
+  ],
+  "features": [
+    "BUSLOANS_lag6",
+    "CPIAUCSL_lag6",
+    "DPCERA3M086SBEA_lag6",
+    "INDPRO_lag6",
+    "M2SL_lag6",
+    "OILPRICEX_lag6",
+    "RPI_lag6",
+    "SP500_lag6",
+    "TB3MS_lag6",
+    "USREC_lag6"
+  ],
+  "preprocs": null
+}

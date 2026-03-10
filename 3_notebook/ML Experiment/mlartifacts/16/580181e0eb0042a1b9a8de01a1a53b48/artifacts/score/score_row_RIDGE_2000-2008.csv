@@ -1,0 +1,2 @@
+unique_id,model_label,model_name,partition,mae,coverage,width,n,perm_mae_top1_feature,perm_mae_top1,perm_dev_top1_feature,perm_dev_top1,shap_share_top1_feature,shap_share_top1
+UNRATE,RIDGE,RIDGE,2000-2008,0.5675167135875747,0.5555555555555556,1.3391389280666275,108,TB3MS_lag12,1.0480614725931041,TB3MS_lag12,1.1208472194454093,USREC_lag12,0.41612678648189855

@@ -1,0 +1,2 @@
+unique_id,model_label,model_name,partition,mae,coverage,width,n,perm_mae_top1_feature,perm_mae_top1,perm_dev_top1_feature,perm_dev_top1,shap_share_top1_feature,shap_share_top1
+UNRATE,LR,LR,2020-end,2.149550122526779,0.7058823529411765,7.439272544025776,68,INDPRO_lag12,1.024878429475039,INDPRO_lag12,1.028042258416878,DPCERA3M086SBEA_lag12,0.4182218221998777

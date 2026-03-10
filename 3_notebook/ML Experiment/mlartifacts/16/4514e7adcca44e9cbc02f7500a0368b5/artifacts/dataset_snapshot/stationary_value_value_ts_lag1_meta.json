@@ -1,0 +1,26 @@
+{
+  "dataset_name": "stationary_value_value_ts_lag1",
+  "feast_feature_name": "stationary_value:value",
+  "partition": "2009-2019",
+  "model_label": "LR",
+  "n_rows": 787,
+  "n_cols": 14,
+  "columns": [
+    "unique_id",
+    "ds",
+    "y",
+    "BUSLOANS_lag1",
+    "CPIAUCSL_lag1",
+    "DPCERA3M086SBEA_lag1",
+    "INDPRO_lag1",
+    "M2SL_lag1",
+    "OILPRICEX_lag1",
+    "RPI_lag1",
+    "SP500_lag1",
+    "TB3MS_lag1",
+    "UNRATE_lag1",
+    "USREC_lag1"
+  ],
+  "snapshot_uri": "file:///D:/Portofolio%20Data%20science/Time%20Series/Explainable_AI_Forecast_and_explain_the_Unemployment_of_USA/3_notebook/ML%20Experiment/mlflow_tmp/LR/2009-2019/dataset_snapshot/stationary_value_value_ts_lag1.parquet",
+  "context": "training"
+}

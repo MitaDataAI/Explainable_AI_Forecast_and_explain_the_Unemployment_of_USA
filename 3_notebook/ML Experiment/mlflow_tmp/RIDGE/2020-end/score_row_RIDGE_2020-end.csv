@@ -1,0 +1,2 @@
+unique_id,model_label,model_name,partition,mae,coverage,width,n,perm_mae_top1_feature,perm_mae_top1,perm_dev_top1_feature,perm_dev_top1,shap_share_top1_feature,shap_share_top1
+UNRATE,RIDGE,RIDGE,2020-end,2.082974114238912,0.7647058823529411,6.921761000585854,68,BUSLOANS_lag36,1.0080859160824727,BUSLOANS_lag36,1.005786413691706,UNRATE_lag36,0.31599938002653577
