@@ -1,0 +1,65 @@
+* [33m167641ba[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m Automate the experiment code to prepare robustnesse test
+* [33m2eda3ec9[m Integrate explainability into model and evaluation
+* [33md290af25[m Orchestrate Experimentation
+* [33m19897ef9[m LightGBM
+* [33m50df4fca[m Comment RIDGE reult
+* [33mbc38eeaf[m RIDGE comparion with another models
+* [33m85c9721e[m interpret Multicolinearity
+* [33mb14d0ab5[m VIF and PCA for multicolinearity
+* [33mdaabca48[m Multicorrelation Analysis
+* [33mef4b450b[m Test MLFLOW
+* [33m3cb24343[m LightGBM
+* [33mc3933d8f[m Integrate experiment on MLFLOW
+* [33md4a800fd[m Experiment Linear Regression VS ARs
+* [33m850d66c9[m AR1 model analysis, EDA -> Test next ARp, Linear Regression
+* [33mcf548291[m Success AR
+* [33m34727cb2[m Sucess experimentation, Linear Regression ameliorate the information from AR model
+* [33m1965cc00[m Analysis multiple variable
+* [33me97ae02a[m Experimentation AR
+* [33m9d850bab[m AR1 and ARoptimized
+* [33mb9d6af63[m Ignore venv and remove it from tracking
+* [33m3028bc54[m Data Pipeline, Autoregressif
+* [33m3c1f847d[m Feature engineering & FEAST
+* [33m5672ab90[m ETL
+* [33mdb105a47[m Shap
+* [33m975a3802[m experimentation workflow
+* [33md171ef15[m Linear Regression OPS experiment
+* [33m959d8113[m exploration
+* [33mf7fc295b[m exploration
+* [33m8ee0adf2[m Stationarity
+* [33md5d4cbf3[m stationarity
+* [33mdf5bacc2[m stationarity
+* [33md2284252[m Data processing
+* [33mc3b19ddf[m Refonte ETL et nouvelle structure du projet
+* [33me4499a9c[m ETL
+* [33m81321165[m ML workflow for expermiments
+* [33m4a5ab64a[m Try Feast with random data
+* [33m7edb9a51[m Try Feast with random data
+* [33m246a23a3[m structure of MLops
+* [33m13155c01[m add lags at models
+* [33m9cf36e3e[m Interprétation LightGBM
+* [33m31bda639[m Régression linéaire bien évaluée
+* [33m67afbc55[m Evaluation parfaite de Régression linéaire vs AR
+* [33m2f58b813[m évaluation prévision et importance des variables
+* [33m0a71e1db[m stationnarisation_exploration
+* [33m856d1fff[m réorganisation de la Sélection des variables
+* [33m0cb3caff[m Scatter plot Target Vs predicators
+* [33mf57e6a10[m PCA / Ridge / LightGBM
+* [33med9e4eb0[m Test AR(1), AR(p), Linear Regression
+* [33m4e99b36e[m add AR(p) to comparizon
+* [33mbf0d725b[m Comparaison de la régression linéaire avec le baseline AR(1)
+* [33m64f3d8a6[m split
+* [33md1aab589[m Stationarity
+* [33me91dc8bc[m Linear Regression
+* [33m31cf24f3[m stationnary
+* [33mb7d69c25[m Stationary, differenciation, lags
+* [33m97c76753[m End of preprocessing
+* [33m7e162553[m End of preprocessing
+* [33m5eac57c0[m Relation between crisis and Time Series
+* [33ma7728c60[m organisation
+* [33mc1a9fe47[m Organisation
+* [33m99bc3ac6[m Normalized, Crisis analysis
+* [33m3e3dd6e0[m Stationary Time Series
+* [33m400b4108[m Stationarity analysis
+* [33m2207f00d[m Stationarity analysis
+* [33mf8e8afad[m Initial commit

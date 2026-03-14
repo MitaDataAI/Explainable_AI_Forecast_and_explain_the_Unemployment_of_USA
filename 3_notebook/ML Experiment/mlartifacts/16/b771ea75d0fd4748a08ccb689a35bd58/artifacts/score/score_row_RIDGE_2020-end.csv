@@ -1,0 +1,2 @@
+unique_id,model_label,model_name,partition,mae,coverage,width,n,perm_mae_top1_feature,perm_mae_top1,perm_dev_top1_feature,perm_dev_top1,shap_share_top1_feature,shap_share_top1
+UNRATE,RIDGE,RIDGE,2020-end,1.9597251948189756,0.7941176470588235,6.868247281679454,68,SP500_lag12,1.0000022979353382,OILPRICEX_lag12,1.0000115486346162,USREC_lag12,0.3952369476482065

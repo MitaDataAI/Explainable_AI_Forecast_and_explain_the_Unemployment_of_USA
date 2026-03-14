@@ -15,78 +15,117 @@
   "n_iter": 50,
   "use_conformal_in_tune": false,
   "param_space": null,
+  "cv_method": "kfold",
+  "kfold_n_splits": 5,
+  "hv_gap": 12,
   "params_history": [
     {
       "model": "LR",
       "block": 1,
       "cutoff_start": "1989-01-01T00:00:00",
-      "n_windows": 36
+      "n_windows": 36,
+      "cv_method": "kfold",
+      "kfold_n_splits": 5,
+      "hv_gap": 12
     },
     {
       "model": "LR",
       "block": 2,
       "cutoff_start": "1992-01-01T00:00:00",
-      "n_windows": 36
+      "n_windows": 36,
+      "cv_method": "kfold",
+      "kfold_n_splits": 5,
+      "hv_gap": 12
     },
     {
       "model": "LR",
       "block": 3,
       "cutoff_start": "1995-01-01T00:00:00",
-      "n_windows": 36
+      "n_windows": 36,
+      "cv_method": "kfold",
+      "kfold_n_splits": 5,
+      "hv_gap": 12
     },
     {
       "model": "LR",
       "block": 4,
       "cutoff_start": "1998-01-01T00:00:00",
-      "n_windows": 36
+      "n_windows": 36,
+      "cv_method": "kfold",
+      "kfold_n_splits": 5,
+      "hv_gap": 12
     },
     {
       "model": "LR",
       "block": 5,
       "cutoff_start": "2001-01-01T00:00:00",
-      "n_windows": 36
+      "n_windows": 36,
+      "cv_method": "kfold",
+      "kfold_n_splits": 5,
+      "hv_gap": 12
     },
     {
       "model": "LR",
       "block": 6,
       "cutoff_start": "2004-01-01T00:00:00",
-      "n_windows": 36
+      "n_windows": 36,
+      "cv_method": "kfold",
+      "kfold_n_splits": 5,
+      "hv_gap": 12
     },
     {
       "model": "LR",
       "block": 7,
       "cutoff_start": "2007-01-01T00:00:00",
-      "n_windows": 36
+      "n_windows": 36,
+      "cv_method": "kfold",
+      "kfold_n_splits": 5,
+      "hv_gap": 12
     },
     {
       "model": "LR",
       "block": 8,
       "cutoff_start": "2010-01-01T00:00:00",
-      "n_windows": 36
+      "n_windows": 36,
+      "cv_method": "kfold",
+      "kfold_n_splits": 5,
+      "hv_gap": 12
     },
     {
       "model": "LR",
       "block": 9,
       "cutoff_start": "2013-01-01T00:00:00",
-      "n_windows": 36
+      "n_windows": 36,
+      "cv_method": "kfold",
+      "kfold_n_splits": 5,
+      "hv_gap": 12
     },
     {
       "model": "LR",
       "block": 10,
       "cutoff_start": "2016-01-01T00:00:00",
-      "n_windows": 36
+      "n_windows": 36,
+      "cv_method": "kfold",
+      "kfold_n_splits": 5,
+      "hv_gap": 12
     },
     {
       "model": "LR",
       "block": 11,
       "cutoff_start": "2019-01-01T00:00:00",
-      "n_windows": 36
+      "n_windows": 36,
+      "cv_method": "kfold",
+      "kfold_n_splits": 5,
+      "hv_gap": 12
     },
     {
       "model": "LR",
       "block": 12,
       "cutoff_start": "2022-01-01T00:00:00",
-      "n_windows": 32
+      "n_windows": 32,
+      "cv_method": "kfold",
+      "kfold_n_splits": 5,
+      "hv_gap": 12
     }
   ],
   "tune_history": [
@@ -94,73 +133,85 @@
       "model": "LR",
       "block": 1,
       "cutoff_start": "1989-01-01T00:00:00",
-      "tune_mae": NaN
+      "tune_mae": NaN,
+      "cv_method": "kfold"
     },
     {
       "model": "LR",
       "block": 2,
       "cutoff_start": "1992-01-01T00:00:00",
-      "tune_mae": NaN
+      "tune_mae": NaN,
+      "cv_method": "kfold"
     },
     {
       "model": "LR",
       "block": 3,
       "cutoff_start": "1995-01-01T00:00:00",
-      "tune_mae": NaN
+      "tune_mae": NaN,
+      "cv_method": "kfold"
     },
     {
       "model": "LR",
       "block": 4,
       "cutoff_start": "1998-01-01T00:00:00",
-      "tune_mae": NaN
+      "tune_mae": NaN,
+      "cv_method": "kfold"
     },
     {
       "model": "LR",
       "block": 5,
       "cutoff_start": "2001-01-01T00:00:00",
-      "tune_mae": NaN
+      "tune_mae": NaN,
+      "cv_method": "kfold"
     },
     {
       "model": "LR",
       "block": 6,
       "cutoff_start": "2004-01-01T00:00:00",
-      "tune_mae": NaN
+      "tune_mae": NaN,
+      "cv_method": "kfold"
     },
     {
       "model": "LR",
       "block": 7,
       "cutoff_start": "2007-01-01T00:00:00",
-      "tune_mae": NaN
+      "tune_mae": NaN,
+      "cv_method": "kfold"
     },
     {
       "model": "LR",
       "block": 8,
       "cutoff_start": "2010-01-01T00:00:00",
-      "tune_mae": NaN
+      "tune_mae": NaN,
+      "cv_method": "kfold"
     },
     {
       "model": "LR",
       "block": 9,
       "cutoff_start": "2013-01-01T00:00:00",
-      "tune_mae": NaN
+      "tune_mae": NaN,
+      "cv_method": "kfold"
     },
     {
       "model": "LR",
       "block": 10,
       "cutoff_start": "2016-01-01T00:00:00",
-      "tune_mae": NaN
+      "tune_mae": NaN,
+      "cv_method": "kfold"
     },
     {
       "model": "LR",
       "block": 11,
       "cutoff_start": "2019-01-01T00:00:00",
-      "tune_mae": NaN
+      "tune_mae": NaN,
+      "cv_method": "kfold"
     },
     {
       "model": "LR",
       "block": 12,
       "cutoff_start": "2022-01-01T00:00:00",
-      "tune_mae": NaN
+      "tune_mae": NaN,
+      "cv_method": "kfold"
     }
   ],
   "fitted_models": [
@@ -192,17 +243,16 @@
     "2022-01-01T00:00:00"
   ],
   "features": [
-    "BUSLOANS_lag36",
-    "CPIAUCSL_lag36",
-    "DPCERA3M086SBEA_lag36",
-    "INDPRO_lag36",
-    "M2SL_lag36",
-    "OILPRICEX_lag36",
-    "RPI_lag36",
-    "SP500_lag36",
-    "TB3MS_lag36",
-    "UNRATE_lag36",
-    "USREC_lag36"
+    "BUSLOANS_lag12",
+    "CPIAUCSL_lag12",
+    "DPCERA3M086SBEA_lag12",
+    "INDPRO_lag12",
+    "M2SL_lag12",
+    "OILPRICEX_lag12",
+    "RPI_lag12",
+    "SP500_lag12",
+    "TB3MS_lag12",
+    "USREC_lag12"
   ],
   "preprocs": null
 }
