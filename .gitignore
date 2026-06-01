@@ -27,6 +27,9 @@ mlflow.db
 mlruns/
 mlartifacts/
 
+# Imported MLflow artifacts
+3_notebook/ML Experiment/mlflow_import/
+
 # Logs
 *.log
 
@@ -39,6 +42,9 @@ artifacts/
 # Serialized models
 *.joblib
 *.pkl
+
+# Heavy generated media
+*.gif
 
 # Temporary files
 *.tmp
