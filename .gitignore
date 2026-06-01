@@ -1,6 +1,8 @@
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
 # Virtual env
 venv/
@@ -14,3 +16,30 @@ env/
 .DS_Store
 .vscode/
 .idea/
+
+# Environment variables
+.env
+.env.*
+
+# MLflow
+mlflow.db
+*.db
+mlruns/
+mlartifacts/
+
+# Logs
+*.log
+
+# Generated outputs
+outputs/
+
+# Local artifacts
+artifacts/
+
+# Serialized models
+*.joblib
+*.pkl
+
+# Temporary files
+*.tmp
+*.bak
