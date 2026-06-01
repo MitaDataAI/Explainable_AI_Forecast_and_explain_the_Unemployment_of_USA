@@ -1,0 +1,56 @@
+{
+  "data": {
+    "series_ids": [
+      "BUSLOANS",
+      "CPIAUCSL",
+      "DPCERA3M086SBEA",
+      "INDPRO",
+      "M2SL",
+      "OILPRICEX",
+      "RPI",
+      "SP500",
+      "TB3MS",
+      "UNRATE",
+      "USREC"
+    ],
+    "start": "1960-01-01",
+    "end": "2026-01-01",
+    "target": "UNRATE"
+  },
+
+  "feature_engineering": {
+    "lags": 12
+  },
+
+  "forecast": {
+    "horizon": 12,
+    "step_size": 1,
+    "frequency": "MS"
+  },
+
+  "prediction_intervals": {
+    "n_windows": 3,
+    "levels": [95]
+  },
+
+  "experiment_period": {
+    "start": "1990-01-01",
+    "end": "2025-08-01"
+  },
+
+  "cross_validation": {
+    "method": "rolling",
+    "hv_gap": null,
+    "kfold_n_splits": 5
+  },
+
+  "training": {
+    "min_train_n": 36,
+    "train_window_type": "expanding",
+    "rolling_window_size": null
+  },
+
+  "reproducibility": {
+    "seed": 42
+  }
+}

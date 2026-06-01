@@ -1,0 +1,8 @@
+{
+  "model_label": "LGBM",
+  "partition": "2009-2019",
+  "alpha": 0.05,
+  "q95": null,
+  "source": "backtest_existing_intervals",
+  "method": "logged_from_backtest"
+}
