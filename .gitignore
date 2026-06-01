@@ -55,3 +55,12 @@ artifacts/
 # Temporary files
 *.tmp
 *.bak
+
+# Local verification files
+1_data/raw/fred_md_extraction_failures.csv
+1_data/raw/verif.py
+2_data_processing/ETL/Verif.ipynb
+2_data_processing/ETL/verif.py
+2_data_processing/ETL/verif_api_urce.py
+2_data_processing/ETL/verif_nom.ipynb
+3_notebook/ML Experiment/9_robustness_testing_evaluation copy.ipynb
