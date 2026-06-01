@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 import getpass
+
 import psycopg2
 
 # Ajouter la racine du projet au PYTHONPATH
@@ -22,23 +23,58 @@ DB_HOST = "localhost"
 DB_PORT = 5432
 
 
+def _to_project_path(path_value, default_relative: str | None = None) -> Path:
+    """
+    Convertit un path config en Path absolu basé sur PROJECT_ROOT si nécessaire.
+    """
+    if path_value is None:
+        if default_relative is None:
+            raise ValueError("Path config manquant et aucun défaut fourni.")
+        return PROJECT_ROOT / default_relative
+
+    path = Path(path_value)
+    if path.is_absolute():
+        return path
+    return PROJECT_ROOT / path
+
+
+# Paths robustes
+CLEANED_DIR = _to_project_path(
+    getattr(CFG, "CLEANED_DIR", None),
+    "1_data/cleaned",
+)
+
+OUT_DATASET_LONG = getattr(CFG, "OUT_DATASET_LONG", None)
+if OUT_DATASET_LONG is None:
+    OUT_DATASET_LONG = getattr(CFG, "OUT_LONG_CSV", "dataset_fred_long.csv")
+
+LONG_CSV_PATH = CLEANED_DIR / OUT_DATASET_LONG
+
+
 def copy_csv_to_table(cur, csv_path: Path, table_name: str, columns: str):
     """
     Charge un CSV via COPY FROM STDIN.
     columns exemple: "(date, series_id, value)"
     """
     print(f"Chargement de {csv_path} -> {table_name} ...")
+
     with csv_path.open("r", encoding="utf-8") as f:
         cur.copy_expert(
             f"COPY {table_name} {columns} FROM STDIN WITH CSV HEADER;",
             f,
         )
+
     print(f"✅ Table {table_name} remplie.")
 
 
 def main():
-    # Fichier d'entrée (dataset long canonique) produit par 5_transform.py
-    long_csv = CFG.CLEANED_DIR / CFG.OUT_DATASET_LONG
+    long_csv = LONG_CSV_PATH
+
+    print(f"PROJECT_ROOT: {PROJECT_ROOT}")
+    print(f"CLEANED_DIR: {CLEANED_DIR}")
+    print(f"LONG_CSV_PATH: {long_csv}")
+    print(f"LONG_CSV exists: {long_csv.exists()}")
+
     if not long_csv.exists():
         raise FileNotFoundError(
             f"CSV introuvable: {long_csv}\n"
@@ -60,7 +96,10 @@ def main():
     try:
         cur = conn.cursor()
 
-        # 1) Retirer la FK si elle existe (sinon l'import peut échouer si series vide)
+        # Vérif rapide du schéma
+        cur.execute("CREATE SCHEMA IF NOT EXISTS macro;")
+
+        # 1) Retirer la FK si elle existe
         print("Désactivation temporaire de la contrainte FK (si existante)...")
         cur.execute(
             """
@@ -79,7 +118,7 @@ def main():
             """
         )
 
-        # 2) Purge (rejouable)
+        # 2) Purge rejouable
         print("Vidage des tables macro.observations_monthly et macro.series...")
         cur.execute("TRUNCATE TABLE macro.observations_monthly;")
         cur.execute("TRUNCATE TABLE macro.series;")
@@ -99,6 +138,7 @@ def main():
             INSERT INTO macro.series(series_id)
             SELECT DISTINCT series_id
             FROM macro.observations_monthly
+            WHERE series_id IS NOT NULL
             ON CONFLICT (series_id) DO NOTHING;
             """
         )
@@ -126,13 +166,24 @@ def main():
         conn.commit()
         print("✅ Données chargées avec succès dans PostgreSQL (FRED-only).")
 
-        # 6) Petite vérif
+        # 6) Vérifications rapides
         cur.execute("SELECT COUNT(*) FROM macro.observations_monthly;")
         n_obs = cur.fetchone()[0]
+
         cur.execute("SELECT COUNT(*) FROM macro.series;")
         n_series = cur.fetchone()[0]
+
+        cur.execute(
+            """
+            SELECT MIN(date), MAX(date)
+            FROM macro.observations_monthly;
+            """
+        )
+        min_date, max_date = cur.fetchone()
+
         print(f"✅ observations_monthly: {n_obs} lignes")
         print(f"✅ series: {n_series} séries")
+        print(f"✅ période chargée: {min_date} -> {max_date}")
 
     except Exception as e:
         conn.rollback()
